@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.0: Cars inspired by real-world cars
+
+Every vehicle has a new model: smooth, curved body panels built the way real car bodies are surfaced (rounded shoulders, tumblehome, tapered noses and tails, true wheel-arch openings) instead of flat-sided boxes. All names and designs are original, with no real makes' badges, logos or signature grilles.
+
+- **Ranger TX4** is a long-wheelbase expedition wagon in the classic Japanese/British 4x4 school: upright glasshouse, round lamps in square bezels, slatted grille, black arch flares, bull bar, winch, snorkel, roof rack and a ladder on the rear door.
+- **Bramble RC2** is a short two-door open-top trail crawler: round lamps either side of a bar grille, flat tube fenders over 37-inch tyres, half doors with hinges, roll cage, light bar and a tailgate spare.
+- **Vanta GT** is a GT3-class race coupe: wide haunches, splitter, bonnet louvres, side exit vents, swan-neck twin-element wing, diffuser and centre-lock wheels.
+- **Strix R2** is a three-door rally hot hatch: bonnet scoop, mesh grille, fog lamps, roof spoiler, mud flaps and gold multi-spoke wheels.
+- **Pella 1.4** is a European five-door hatchback, **Corvan 2.0** a mid-size family saloon with chrome window line, **Halcyon Grand** a flagship luxury saloon with an upright chrome grille and full-width light bar, and **Solenne GT** a long-bonnet V12 grand tourer with a fastback, side strakes and quad exhausts.
+- **Real glass and pillars.** Tinted, reflective glass between painted A/B/C pillars, a roof, headliner and a proper cabin (seats, dash, console, screen, steering wheel) you can see through the windows.
+- **Lamps and lighting.** Headlamps with chrome reflectors and lenses, LED daytime running lights, tail lamps that glow brighter with the headlights on and flare when braking, and reversing lamps that light in reverse.
+- **Paint and materials.** Metallic and solid clear-coat paints, chrome, gloss black, carbon fibre, textured trim, mesh grilles and number plates.
+- **Wheels.** Rim barrels with polished lips and per-car spoke designs (five twin-spoke, multi-spoke, split-spoke, mesh, turbine, steel and beadlock), lug or centre-lock nuts, brake discs that turn with the wheel and coloured calipers that do not.
+- AI traffic uses the same models in a lighter version. Parts are merged by material, so a car costs a handful of draw calls.
+- **Showroom page** (`showroom.html`) shows every car on a turntable under the game's sky.
+- Physics, handling and collision shapes are unchanged.
+
 ## 0.8.2: World map fix and more graphics
 
 - **World map fixed.** The *World map* button on the main menu did nothing (the map only opened once a game had started), and the map was not drawn there. It now opens from the main menu, from a new *World map* button in the pause menu and with M in game; Esc or M closes it.

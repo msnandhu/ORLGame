@@ -12,3 +12,7 @@ export * from './types/game';
 export * from './constants/game';
 export * from './schemas/messages';
 export * from './events/bus';
+export * from './characters/appearance';
+export * from './characters/vehicleTransition';
+export * from './gameplay/interaction';
+export * from './npc/npc';

@@ -1,4 +1,4 @@
-# Architecture (v0.4.0, Phase 2)
+# Architecture (v0.5.0, Phase 3)
 
 ## Packages
 
@@ -52,6 +52,20 @@ All vehicle behaviour lives in `shared/src/vehicles` and runs at 240 Hz, identic
   - `Vehicle.onImpact` reports each hit, and the client dents the body panels there (vertex deformation).
 - **Collisions with buildings**: each hull point remembers which face of a box it entered through (`BoxContactMemory`). This stops a fast car from punching through the 30 cm shed walls.
 
+## Character engine (Phase 3)
+
+| Module | Role |
+|---|---|
+| `shared/characters/appearance.ts` | `CharacterAppearance` data, option lists and palettes, `sanitizeAppearance`, a 19-character network code (`encodeAppearance` / `decodeAppearance`), `randomAppearance`, `statureOf`. |
+| `shared/characters/character.ts` | Kinematic controller over the heightfield. It handles collision with trees, boulders, buildings and vehicles, plus stamina with exhaustion, landing recovery and `LocomotionState`. Stride scales with stature. |
+| `shared/characters/vehicleTransition.ts` | Enter and exit sequence: approach the door (with a 2.5 s timeout), face the cab, climb in or out. `progress` drives the client animation. |
+| `shared/gameplay/interaction.ts` | `pickInteractable`: the nearest thing in reach, with a penalty for things behind you. |
+| `shared/npc/npc.ts` | `Npc` (same controller as the player, waypoint routine, skips blocked waypoints, faces the speaker), dialogue graph + `validateDialogue`, `DialogueSession` with game actions that can divert, `CAMP_MECHANIC`. |
+| `client/characters/CharacterView.ts` | Builds the figure from an appearance under a skeleton of transform nodes (hips, spine, neck, shoulders, elbows, thighs, knees, ankles) scaled to stature. Animation blends 12 named poses with exponentially smoothed weights, then plants the lower foot and levels the soles. `attach()` parents the figure to a vehicle for the seated and climbing poses. |
+| `client/ui/CharacterCreator.ts`, `client/save/CharacterStore.ts` | Creator panel (live preview through `onChange`) and the stored look. |
+
+The vehicle spec's `look.seat` gives the driver's hip point. The door used for entering is level with it, 0.45 m outside the hull.
+
 ## Coordinate frame
 
 Right-handed, Y up, +Z forward for vehicles. The Babylon scene uses `useRightHandedSystem = true` so simulation values are used without conversion. The Havok heightfield expects `data[(N-1-z)*N + x]`.
@@ -62,15 +76,18 @@ Right-handed, Y up, +Z forward for vehicles. The Babylon scene uses `useRightHan
 
 ## Networking and anti-cheat
 
-Clients send `state` messages (`PlayerTransform`). The server (`server/src/validation/movement.ts`) rejects: non-finite values, unnormalised quaternions, positions outside the world, positions below the terrain, horizontal speed above the mode limit (foot 9 m/s, vehicle 55 m/s), vertical speed above 40 m/s, reported velocity that disagrees with displacement, and more than 30 messages per second. A rejected move sends a `correction` back to the last accepted position; more than 40 violations disconnects the client. Chat is sanitised and length-limited.
+Clients send `state` messages (`PlayerTransform`). The server (`server/src/validation/movement.ts`) rejects: non-finite values, unnormalised quaternions, positions outside the world, positions below the terrain, horizontal speed above the mode limit (foot 9 m/s, vehicle 55 m/s), vertical speed above 40 m/s, reported velocity that disagrees with displacement, and more than 30 messages per second. A rejected move sends a `correction` back to the last accepted position; more than 40 violations disconnects the client. Chat is sanitised and length-limited. A player's look arrives as a join option and is decoded and re-encoded by the server before it reaches the shared state.
 
 ## Persistence
 
-Saves go to browser `localStorage` (`orl.save.slot1`, `orl.settings.v2`). From v0.4 a save holds every camp vehicle with its position, fuel, modes and condition, plus which one you were driving and your repair kits. Older saves still load. PostgreSQL (accounts, garages, economy) and Redis (sessions, presence, room routing) are specified but not implemented yet.
+Saves go to browser `localStorage` (`orl.save.slot1`, `orl.settings.v2`, and the character in `orl.character.v1`). From v0.4 a save holds every camp vehicle with its position, fuel, modes and condition, plus which one you were driving and your repair kits. Older saves still load. PostgreSQL (accounts, garages, economy) and Redis (sessions, presence, room routing) are specified but not implemented yet.
 
 ## Known limitations
 
-- Art is placeholder geometry built from primitives; no Blender models yet.
+- Art is placeholder geometry built from primitives; no Blender models yet. Characters are primitive-built figures with procedural (code) animation, not skinned meshes with motion-captured clips.
+- Remote players' animation is inferred from their motion: crouching and landing recovery are not sent over the network.
+- Hands do not grip the steering wheel exactly (the seated pose approximates it). Climbing in passes through the door rather than opening it, because the doors are not separate parts.
+- Only one NPC (the camp mechanic) exists. Garage and mission interactions arrive with Phase 4 (garage) and Phase 5 (missions); the interaction system and dialogue actions are where they plug in.
 - World is one 1 km² region with no streaming or floating origin; the spec's 500 km world needs both.
 - No PostgreSQL, Redis, accounts or authentication yet.
 - Server validates movement plausibility but does not re-simulate vehicle physics. Damage is client-side only and is not synced to other players.

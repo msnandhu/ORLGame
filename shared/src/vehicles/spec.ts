@@ -4,6 +4,8 @@ export interface VehicleLook {
   paint: [number, number, number];   // linear-ish RGB 0..1
   accent: [number, number, number];
   snorkel: boolean;
+  /** driver's hip point (vehicle frame, metres from the CoM; +X is the driver's side) */
+  seat: [number, number, number];
 }
 
 /** Data-driven vehicle definition. Every handling number lives here, so a new vehicle is new data, not new code. */
@@ -45,7 +47,7 @@ export const RANGER_TX4: VehicleSpec = {
   drivetrain: 'part-time-4wd',
   damageResistance: 1.0,
   bellyY: -0.6,
-  look: { style: 'wagon', paint: [0.62, 0.16, 0.08], accent: [0.08, 0.08, 0.08], snorkel: true },
+  look: { style: 'wagon', paint: [0.62, 0.16, 0.08], accent: [0.08, 0.08, 0.08], snorkel: true, seat: [0.42, 0.18, -0.38] },
   mass: 2150,
   inertia: [3600, 4200, 1300],
   halfExtents: [0.95, 0.62, 2.3],
@@ -75,7 +77,7 @@ export const BRAMBLE_RC2: VehicleSpec = {
   drivetrain: 'part-time-4wd',
   damageResistance: 1.3,
   bellyY: -0.42,
-  look: { style: 'crawler', paint: [0.86, 0.6, 0.08], accent: [0.1, 0.1, 0.1], snorkel: false },
+  look: { style: 'crawler', paint: [0.86, 0.6, 0.08], accent: [0.1, 0.1, 0.1], snorkel: false, seat: [0.38, 0.3, -0.4] },
   mass: 1680,
   inertia: [2300, 2600, 900],
   halfExtents: [0.9, 0.6, 1.95],

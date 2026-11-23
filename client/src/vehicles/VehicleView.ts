@@ -43,7 +43,7 @@ export class VehicleView {
     const body = mat('paint', paint, 0.35, 0.3); body.clearCoat.isEnabled = true; body.clearCoat.intensity = 0.8; body.clearCoat.roughness = 0.12;
     const dark = mat('trim', new Color3(0.11, 0.12, 0.13), 0.7, 0.1);
     const steel = mat('steel', new Color3(0.42, 0.43, 0.45), 0.42, 0.7);
-    const glass = mat('glass', new Color3(0.05, 0.08, 0.1), 0.05, 0.1); glass.alpha = 0.85;
+    const glass = mat('glass', new Color3(0.12, 0.16, 0.2), 0.05, 0.1); glass.alpha = 0.32;
     this.head = mat('headlamp', new Color3(1, 1, 1), 0.2); this.head.emissiveColor = new Color3(1, 0.95, 0.82); this.head.emissiveIntensity = 0.6;
     this.brake = mat('brakelamp', new Color3(0.35, 0, 0), 0.3); this.brake.emissiveColor = new Color3(1, 0.1, 0); this.brake.emissiveIntensity = 0.3;
 
@@ -117,8 +117,17 @@ export class VehicleView {
     };
     const lower: [number, number][] = [[-2.22, bot], ...arch(rz), ...arch(fz), [2.16, bot], [2.22, 0.08], [2.14, 0.34], [1.9, 0.4], [0.5, 0.47], [-2.2, 0.4], [-2.26, 0.1]];
     ext('tub', lower, 1.8, body);
-    ext('cab', [[0.52, 0.4], [-0.08, 1.1], [-1.96, 1.12], [-2.12, 0.38]], 1.68, body);
-    // windows: thin glass panels just proud of the cab shell
+    // cab: roof on pillars, so the driver shows through the glass
+    ext('cab', [[-0.02, 1.03], [-0.08, 1.1], [-1.96, 1.12], [-1.97, 1.03]], 1.68, body);
+    for (const sx of [-1, 1]) {
+      const at = sx * 0.81;
+      ext('cab-frame', [[0.56, 0.42], [-0.04, 1.08], [-0.14, 1.08], [0.44, 0.42]], 0.07, body, at);
+      ext('cab-frame', [[-0.9, 0.42], [-0.9, 1.08], [-1.0, 1.08], [-1.0, 0.42]], 0.07, body, at);
+      ext('cab-frame', [[-1.88, 0.42], [-1.93, 1.08], [-2.12, 1.08], [-2.12, 0.38]], 0.07, body, at);
+      ext('cab-frame', [[0.5, 0.42], [0.42, 0.57], [-2.0, 0.6], [-2.12, 0.38]], 0.07, body, at);
+    }
+    box('cab-frame', 1.62, 0.18, 0.07, body, 0, 0.47, -2.08);
+    // windows: thin glass panels in the openings
     const sideWin: [number, number][] = [[0.36, 0.55], [-0.05, 1.02], [-0.9, 1.03], [-0.9, 0.58]];
     const sideWin2: [number, number][] = [[-1.0, 0.58], [-1.0, 1.03], [-1.88, 1.04], [-1.95, 0.6]].reverse() as [number, number][];
     for (const sx of [-1, 1]) {
@@ -128,6 +137,12 @@ export class VehicleView {
     const ws = box('windshield', 1.5, 0.74, 0.02, glass, 0, 0.77, 0.23, -0.79);
     box('rear-glass', 1.42, 0.5, 0.02, glass, 0, 0.8, -2.11, 0.1);
     void ws;
+    // cab interior seen through the glass: seat backs, dash and steering wheel (driver on +X)
+    const seatX = v.spec.look.seat[0];
+    for (const sx of [-seatX, seatX]) { box('seat', 0.46, 0.62, 0.1, dark, sx, 0.66, -0.7, -0.15); box('headrest', 0.26, 0.14, 0.08, dark, sx, 1.02, -0.76, -0.15); }
+    box('dash', 1.6, 0.14, 0.3, dark, 0, 0.6, 0.3);
+    const wsw = MeshBuilder.CreateTorus('steering', { diameter: 0.36, thickness: 0.035, tessellation: 20 }, scene);
+    wsw.parent = this.root; wsw.position.set(seatX, 0.56, 0.1); wsw.rotation.x = -1.25; wsw.material = dark; this.meshes.push(wsw);
     box('frame', 1.1, 0.16, 4.1, dark, 0, -0.42, 0);
     box('skid', 1.0, 0.05, 1.1, steel, 0, -0.5, 1.2);
     box('rocker', 1.84, 0.12, 2.0, dark, 0, -0.26, 0.02);

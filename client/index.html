@@ -51,7 +51,7 @@
   <h2>Controls</h2>
   <div class="cols">
     <div><h3>On foot</h3>
-      <p><b>W A S D</b> move · <b>Shift</b> sprint · <b>Space</b> jump · <b>C</b> crouch<br><b>E</b> enter vehicle</p></div>
+      <p><b>W A S D</b> run · <b>Alt</b> hold to walk · <b>Shift</b> sprint<br><b>Space</b> jump · <b>C</b> crouch<br><b>E</b> interact: drive a vehicle, talk to people<br><b>1 – 5</b> pick a reply in a conversation</p></div>
     <div><h3>Driving</h3>
       <p><b>W / S</b> throttle / brake (hold S when stopped to reverse)<br><b>A / D</b> steer · <b>Space</b> handbrake<br>
       <b>C</b> driving mode: Normal / Sport / Off-road / Rock crawl / Snow / Mud<br>
@@ -90,6 +90,14 @@
   <button id="btn-settings-close">Back</button>
 </div>
 
+<div id="creator" class="hidden"></div>
+
+<div id="dialogue" class="hidden">
+  <div id="dlg-name"></div>
+  <div id="dlg-text"></div>
+  <div id="dlg-options"></div>
+</div>
+
 <div id="loading" class="overlay">
   <div class="title">OFF-ROAD<span>LEGENDS</span></div>
   <div class="loadbar"><div id="load-fill"></div></div>
@@ -101,13 +109,13 @@
   <div class="sub">Free roam · Redstone Valley</div>
   <button id="btn-continue" class="hidden">Continue</button>
   <button id="btn-new">New game</button>
+  <button id="btn-character">Character</button>
   <button id="btn-mp">Multiplayer free roam</button>
   <button id="btn-map">World map</button>
   <button id="btn-menu-settings">Settings</button>
   <div class="soon">
     <button disabled title="Planned: Phase 5">Story mode · Phase 5</button>
     <button disabled title="Planned: Phase 4">Garage · Phase 4</button>
-    <button disabled title="Planned: Phase 3">Character · Phase 3</button>
     <button disabled title="Planned: Phase 5">Challenges · Phase 5</button>
   </div>
   <p id="menu-status" class="menu-note small"></p>

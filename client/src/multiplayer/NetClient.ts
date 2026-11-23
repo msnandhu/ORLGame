@@ -4,6 +4,8 @@ import { log } from '../core/logger';
 
 export interface RemotePlayer {
   id: string; name: string; mode: 'foot' | 'vehicle'; vid: string;
+  /** appearance code (server-sanitized) */
+  look: string;
   /** buffered server snapshots for interpolation */
   buf: { at: number; s: PlayerTransform }[];
 }
@@ -22,23 +24,24 @@ export class NetClient {
   private sendAcc = 0;
   readonly interpDelayMs = 100;
 
-  async connect(url: string, name: string) {
+  /** look: the player's appearance code (encodeAppearance); the server re-validates it */
+  async connect(url: string, name: string, look = '') {
     this.status = 'connecting';
     try {
-      const room = await new Client(url).joinOrCreate(ROOM_NAME, { name });
+      const room = await new Client(url).joinOrCreate(ROOM_NAME, { name, look });
       this.room = room; this.status = 'online';
       log.info('net', `Joined ${ROOM_NAME} ${room.roomId} as ${room.sessionId}`);
       room.onMessage(MESSAGE.CORRECTION, (c: { x: number; y: number; z: number; reason: string }) => { log.warn('net', `Server correction: ${c.reason}`); this.onCorrection(c); });
       room.onMessage(MESSAGE.CHAT, (c: { from: string; text: string }) => this.onChat(c));
-      room.onStateChange((state: { players: Map<string, PlayerTransform & { name: string }> }) => {
+      room.onStateChange((state: { players: Map<string, PlayerTransform & { name: string; look?: string }> }) => {
         const now = performance.now();
         const seen = new Set<string>();
         state.players.forEach((p, id) => {
           if (id === room.sessionId) return;
           seen.add(id);
           let r = this.remotes.get(id);
-          if (!r) { r = { id, name: p.name, mode: p.mode, vid: p.vid ?? '', buf: [] }; this.remotes.set(id, r); }
-          r.name = p.name; r.mode = p.mode; r.vid = p.vid ?? '';
+          if (!r) { r = { id, name: p.name, mode: p.mode, vid: p.vid ?? '', look: p.look ?? '', buf: [] }; this.remotes.set(id, r); }
+          r.name = p.name; r.mode = p.mode; r.vid = p.vid ?? ''; r.look = p.look ?? '';
           const last = r.buf[r.buf.length - 1];
           if (!last || last.s.t !== p.t) r.buf.push({ at: now, s: { mode: p.mode, x: p.x, y: p.y, z: p.z, qx: p.qx, qy: p.qy, qz: p.qz, qw: p.qw, vx: p.vx, vy: p.vy, vz: p.vz, t: p.t } });
           if (r.buf.length > 30) r.buf.shift();

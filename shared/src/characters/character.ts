@@ -2,7 +2,10 @@ import { Vec3 } from '../math/vec';
 import { Terrain } from '../terrain/terrain';
 import { clamp } from '../math/noise';
 
-export interface MoveInput { forward: number; right: number; sprint: boolean; jump: boolean; crouch: boolean; camYaw: number }
+/** walk: hold to stroll instead of jogging (the default pace is a run, as in most third-person games). */
+export interface MoveInput { forward: number; right: number; sprint: boolean; jump: boolean; crouch: boolean; camYaw: number; walk?: boolean }
+/** What the body is doing, for animation and gameplay (e.g. no entering a vehicle mid-air). */
+export type LocomotionState = 'idle' | 'walk' | 'run' | 'sprint' | 'crouch' | 'crouch-walk' | 'jump' | 'fall' | 'land';
 
 /** Kinematic third-person character controller over the heightfield with obstacle collision. */
 export class Character {
@@ -12,8 +15,18 @@ export class Character {
   grounded = true;
   crouching = false;
   stamina = 1;
+  /** sprinting to empty leaves you winded: no sprint until stamina recovers to 30% */
+  exhausted = false;
   speed = 0;                 // horizontal speed m/s (for animation)
   animPhase = 0;
+  state: LocomotionState = 'idle';
+  airTime = 0;
+  /** seconds of landing recovery left; set on touchdown, longer for harder landings */
+  landTimer = 0;
+  /** last touchdown speed (m/s, downward) */
+  landSpeed = 0;
+  /** height scale from the appearance (1 = 1.75 m); taller characters stride further */
+  stature = 1;
   readonly radius = 0.35;
   private _qb = new Set<number>(); private _qt = new Set<number>();
 
@@ -40,8 +53,10 @@ export class Character {
   update(dt: number, inp: MoveInput, obstacleBoxes: { cx: number; cz: number; hx: number; hz: number; yaw: number; top: number }[]) {
     const T = this.terrain;
     this.crouching = inp.crouch && this.grounded;
-    const wantSprint = inp.sprint && !this.crouching && this.stamina > 0.05 && inp.forward > 0;
-    const maxSpeed = this.crouching ? 1.6 : wantSprint ? 7.5 : 3.6;
+    if (this.stamina <= 0.02) this.exhausted = true; else if (this.stamina > 0.3) this.exhausted = false;
+    const wantSprint = inp.sprint && !this.crouching && !this.exhausted && inp.forward > 0;
+    const landing = this.landTimer > 0 ? 0.45 : 1; // a hard landing costs a moment
+    const maxSpeed = (this.crouching ? 1.6 : wantSprint ? 7.5 : inp.walk ? 1.7 : 3.6) * landing * (0.9 + 0.1 * this.stature);
     // camera-relative wish direction (camYaw 0 looks toward +Z)
     const fx = Math.sin(inp.camYaw), fz = Math.cos(inp.camYaw);
     const rx = -fz, rz = fx; // right vector
@@ -68,7 +83,8 @@ export class Character {
     if (wantSprint && Math.hypot(this.vel.x, this.vel.z) > 4) this.stamina = Math.max(0, this.stamina - dt / 8);
     else this.stamina = Math.min(1, this.stamina + dt / 5);
 
-    if (this.grounded && inp.jump && !this.crouching) { this.vel.y = 5.2; this.grounded = false; }
+    const wasGrounded = this.grounded, fallVel = this.vel.y;
+    if (this.grounded && inp.jump && !this.crouching && this.landTimer <= 0) { this.vel.y = 5.2; this.grounded = false; }
     this.vel.y -= 9.81 * dt;
     this.pos.addScaledVector(this.vel, dt);
 
@@ -125,6 +141,25 @@ export class Character {
     if (wd > 1.2) { this.pos.y = T.waterLevel - 1.2; this.vel.y = 0; this.grounded = true; }
 
     this.speed = Math.hypot(this.vel.x, this.vel.z);
-    this.animPhase += dt * this.speed * 2.2;
+    // stride length scales with height, so a tall character's legs don't skate
+    this.animPhase += dt * this.speed * 2.2 / this.stature;
+    // ---- locomotion state ----
+    if (this.landTimer > 0) this.landTimer -= dt;
+    if (!this.grounded) this.airTime += dt;
+    if (this.grounded && !wasGrounded && this.airTime > 0.12) {
+      this.landSpeed = Math.max(0, -fallVel);
+      this.landTimer = Math.min(0.45, 0.08 + this.landSpeed * 0.04);
+    }
+    if (this.grounded) this.airTime = 0;
+    this.state = this.locomotion(wantSprint);
+  }
+
+  private locomotion(sprinting: boolean): LocomotionState {
+    if (!this.grounded && (this.vel.y > 0.5 || this.airTime > 0.08)) return this.vel.y > 0 ? 'jump' : 'fall';
+    if (this.landTimer > 0) return 'land';
+    if (this.crouching) return this.speed > 0.3 ? 'crouch-walk' : 'crouch';
+    if (this.speed < 0.25) return 'idle';
+    if (sprinting && this.speed > 5) return 'sprint';
+    return this.speed > 2.6 ? 'run' : 'walk';
   }
 }

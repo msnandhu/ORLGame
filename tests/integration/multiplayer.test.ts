@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Client } from '@colyseus/sdk';
-import { ROOM_NAME, MESSAGE, type PlayerTransform } from '@orl/shared';
+import { ROOM_NAME, MESSAGE, encodeAppearance, DEFAULT_FEMALE, DEFAULT_MALE, type PlayerTransform } from '@orl/shared';
 import { createGameServer, } from '../../server/src/app';
 import { getTerrain } from '../../server/src/rooms/FreeRoamRoom';
 
@@ -40,5 +40,15 @@ describe('multiplayer free roam (real WebSocket server)', () => {
     await a.leave(); await wait(150);
     expect((b.state as any).players.has(a.sessionId)).toBe(false);
     await b.leave();
+  });
+  it('shares each player\'s look, re-validated by the server', async () => {
+    const look = encodeAppearance({ ...DEFAULT_FEMALE, hair: 'curly', accessories: ['scarf'] });
+    const a = await new Client(`ws://localhost:${PORT}`).joinOrCreate(ROOM_NAME, { name: 'Cara', look });
+    const b = await new Client(`ws://localhost:${PORT}`).joinOrCreate(ROOM_NAME, { name: 'Dev', look: '<img src=x onerror=alert(1)>' });
+    await wait(250);
+    const players = (a.state as any).players;
+    expect(players.get(a.sessionId).look).toBe(look);
+    expect(players.get(b.sessionId).look).toBe(encodeAppearance(DEFAULT_MALE)); // hostile code -> default look
+    await a.leave(); await b.leave();
   });
 });

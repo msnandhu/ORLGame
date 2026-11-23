@@ -1,6 +1,6 @@
 # OFF-ROAD LEGENDS
 
-Browser open-world multiplayer off-road game. **Current milestone: Phase 2 (vehicle engine), v0.4.0.** This adds two data-driven vehicles, six driving modes, collision damage and repairs.
+Browser open-world multiplayer off-road game. **Current milestone: Phase 3 (character engine), v0.5.0.** This adds male and female characters with a character creator, blended animation, animated enter/exit with a visible driver, E-to-interact, and a camp mechanic NPC with dialogue. Phase 2 added two data-driven vehicles, six driving modes, collision damage and repairs.
 
 Stack: TypeScript (strict) · Babylon.js 9 (WebGPU, falling back to WebGL2) · Havok physics + custom 240 Hz drivetrain/tyre simulation · Colyseus 0.18 server-authoritative multiplayer · Vite · Vitest.
 
@@ -18,6 +18,8 @@ npm run preview        # serve the production client build
 npm run start:server   # run the bundled server
 ```
 
+Character: the main menu's **Character** button opens the creator (the first New game opens it too).
+
 Single player works without the server. For multiplayer, start the server, then click **Multiplayer free roam** in the main menu (server address is in Settings).
 
 ## Controls
@@ -26,7 +28,9 @@ Single player works without the server. For multiplayer, start the server, then 
 |---|---|---|
 | Move / drive | WASD | Left stick / triggers |
 | Camera | Mouse (click to lock), wheel zooms | Right stick |
-| Enter / exit vehicle | E | Y |
+| Interact: enter / exit vehicle, talk | E | Y |
+| Walk (hold) | Alt | Light stick tilt |
+| Pick a reply in a conversation | 1 – 5 or click | |
 | Camera mode | V (chase, far, hood, cockpit / on foot: chase, first-person, free) | |
 | Handbrake / jump | Space | A |
 | Sprint / crouch | Shift / C | |
@@ -40,7 +44,8 @@ Single player works without the server. For multiplayer, start the server, then 
 
 ```
 shared/   @orl/shared  deterministic simulation used by client AND server
-  math/ terrain/ vehicles/ characters/ constants/ types/ schemas/ events/
+  math/ terrain/ vehicles/ characters/ (controller, appearance, enter/exit)  gameplay/ (interaction)  npc/ (NPCs, dialogue)
+  constants/ types/ schemas/ events/
 client/   @orl/client  Babylon.js game client
   engine/ (WebGPU→WebGL2)  physics/ (Havok)  rendering/  world/  vehicles/  characters/
   cameras/  input/  audio/  ui/  multiplayer/  save/  assets/  config/  core/ (app, logger, errors)

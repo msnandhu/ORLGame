@@ -4,26 +4,29 @@ export class Input {
   private pressed = new Set<string>();
   mouseDX = 0; mouseDY = 0; wheel = 0;
   locked = false;
+  /** false while a menu needs the cursor (character creator, conversations) */
+  allowLock = true;
   gamepad: Gamepad | null = null;
   private padPrev: boolean[] = [];
   padPressed = new Set<number>();
 
   constructor(el: HTMLElement) {
     window.addEventListener('keydown', e => {
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'AltLeft', 'AltRight'].includes(e.code)) e.preventDefault();
       if (!e.repeat) this.pressed.add(e.code);
       this.down.add(e.code);
     });
-    window.addEventListener('keyup', e => this.down.delete(e.code));
+    // Alt (hold to walk) must not open the browser menu bar on release
+    window.addEventListener('keyup', e => { this.down.delete(e.code); if (e.code === 'AltLeft' || e.code === 'AltRight') e.preventDefault(); });
     window.addEventListener('blur', () => this.down.clear());
-    el.addEventListener('click', () => { if (!this.locked) el.requestPointerLock?.(); });
+    el.addEventListener('click', () => { if (!this.locked && this.allowLock) el.requestPointerLock?.(); });
     document.addEventListener('pointerlockchange', () => { this.locked = document.pointerLockElement === el; });
     window.addEventListener('mousemove', e => { if (this.locked) { this.mouseDX += e.movementX; this.mouseDY += e.movementY; } });
     // drag-to-orbit fallback when pointer lock is unavailable
-    let dragging = false;
-    el.addEventListener('mousedown', () => { dragging = true; });
+    let dragging = false, lx = 0, ly = 0;
+    el.addEventListener('mousedown', e => { dragging = true; lx = e.clientX; ly = e.clientY; });
     window.addEventListener('mouseup', () => { dragging = false; });
-    window.addEventListener('mousemove', e => { if (!this.locked && dragging) { this.mouseDX += e.movementX; this.mouseDY += e.movementY; } });
+    window.addEventListener('mousemove', e => { if (!this.locked && dragging) { this.mouseDX += e.clientX - lx; this.mouseDY += e.clientY - ly; lx = e.clientX; ly = e.clientY; } });
     el.addEventListener('wheel', e => { this.wheel += Math.sign(e.deltaY); e.preventDefault(); }, { passive: false });
   }
   isDown(code: string) { return this.down.has(code); }

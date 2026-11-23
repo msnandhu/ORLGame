@@ -63,6 +63,7 @@ export class Environment {
   }
 
   addShadowCaster(m: AbstractMesh) { this.casters.push(m); this.shadow?.addShadowCaster(m, false); }
+  removeShadowCaster(m: AbstractMesh) { const i = this.casters.indexOf(m); if (i >= 0) this.casters.splice(i, 1); this.shadow?.removeShadowCaster(m, false); }
 
   apply(p: QualityPreset) {
     this.scene.fogEnd = p.fogEnd;

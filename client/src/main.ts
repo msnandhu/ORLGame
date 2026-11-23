@@ -1,9 +1,11 @@
 import './ui/style.css';
-import type { GraphicsQuality } from '@orl/shared';
+import { encodeAppearance, type GraphicsQuality, type CharacterAppearance } from '@orl/shared';
 import { GameApp } from './core/GameApp';
 import { installErrorHandling } from './core/errors';
 import { loadSettings, saveSettings } from './config/settings';
 import { SaveGame } from './save/SaveGame';
+import { CharacterStore } from './save/CharacterStore';
+import { CharacterCreator } from './ui/CharacterCreator';
 import { log } from './core/logger';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -26,17 +28,38 @@ function play(fromSave: boolean) {
   app.newGame(fromSave);
   $('menu').classList.add('hidden'); $('hud').classList.remove('hidden');
   app.setPaused(false); app.start();
-  app.hud.toast(fromSave ? 'Save loaded' : 'Two vehicles are parked at camp: walk up to one and press E');
+  app.hud.toast(fromSave ? 'Save loaded' : 'Two vehicles are parked at camp, and Marta runs the workshop: walk up and press E');
 }
+
+// ---------- character creator ----------
+const creator = new CharacterCreator($('creator'), app.appearance);
+let afterCreator: (() => void) | null = null;
+function openCreator(then: (() => void) | null) {
+  afterCreator = then;
+  $('menu').classList.add('hidden');
+  app.creatorOpen = true; app.creatorSpin = 0; app.input.allowLock = false;
+  creator.open(app.appearance);
+}
+creator.onChange = a => app.setAppearance(a);
+creator.onDone = (a: CharacterAppearance | null) => {
+  const saved = CharacterStore.read();
+  if (a) CharacterStore.write(a);
+  else app.setAppearance(saved ?? creator.value); // cancel restores the stored look
+  creator.close(); app.creatorOpen = false; app.input.allowLock = true;
+  const next = afterCreator; afterCreator = null;
+  if (next && (a || saved)) next(); else showMenu();
+};
 
 // ---------- main menu ----------
 $('btn-continue').addEventListener('click', () => play(true));
-$('btn-new').addEventListener('click', () => play(false));
+// the first new game opens the creator so the player picks a look before driving
+$('btn-new').addEventListener('click', () => (CharacterStore.read() ? play(false) : openCreator(() => play(false))));
+$('btn-character').addEventListener('click', () => openCreator(null));
 $('btn-mp').addEventListener('click', async () => {
   const url = ($<HTMLInputElement>('opt-server').value || defaultServer()).trim();
   const status = $('menu-status');
   status.textContent = `Connecting to ${url}…`;
-  const ok = await app.net.connect(url, 'Explorer' + Math.floor(Math.random() * 900 + 100));
+  const ok = await app.net.connect(url, 'Explorer' + Math.floor(Math.random() * 900 + 100), encodeAppearance(app.appearance));
   if (ok) { status.textContent = ''; play(false); app.hud.toast('Joined free roam server'); }
   else status.textContent = `Could not reach ${url}. Start one with "npm run dev:server", or set the address in Settings.`;
 });
@@ -53,7 +76,7 @@ $('btn-camp').addEventListener('click', () => {
 });
 $('btn-settings').addEventListener('click', () => $('settings').classList.remove('hidden'));
 $('btn-help').addEventListener('click', () => $('help').classList.toggle('hidden'));
-$('btn-quit').addEventListener('click', () => { app.save(); app.net.disconnect(); app.setPaused(false); app.started = false; app.audio.suspend(); showMenu(); });
+$('btn-quit').addEventListener('click', () => { app.cancelInteraction(); app.save(); app.net.disconnect(); app.setPaused(false); app.started = false; app.audio.suspend(); showMenu(); });
 
 // ---------- settings ----------
 const gfx = $<HTMLSelectElement>('opt-gfx'), adaptive = $<HTMLInputElement>('opt-adaptive'), webgpu = $<HTMLInputElement>('opt-webgpu');

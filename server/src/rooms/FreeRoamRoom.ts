@@ -1,10 +1,12 @@
 import { Room, type Client } from '@colyseus/core';
 import { schema, t as ty, MapSchema } from '@colyseus/schema';
-import { Terrain, vehicleById, WORLD_SEED, LIMITS, MAX_PLAYERS_PER_ROOM, MESSAGE, isPlayerTransform, sanitizeChat, type PlayerTransform } from '@orl/shared';
+import { Terrain, vehicleById, decodeAppearance, encodeAppearance, WORLD_SEED, LIMITS, MAX_PLAYERS_PER_ROOM, MESSAGE, isPlayerTransform, sanitizeChat, type PlayerTransform } from '@orl/shared';
 import { validateMove, RateLimiter, type Accepted } from '../validation/movement';
 
 export const PlayerState = schema({
   name: ty.string(), mode: ty.string(), vid: ty.string(),
+  /** appearance code, re-encoded by the server so every client receives a valid look */
+  look: ty.string(),
   x: ty.number(), y: ty.number(), z: ty.number(),
   qx: ty.number(), qy: ty.number(), qz: ty.number(), qw: ty.number(),
   vx: ty.number(), vy: ty.number(), vz: ty.number(),
@@ -38,11 +40,11 @@ export class FreeRoamRoom extends Room {
     });
   }
 
-  override onJoin(client: Client, options?: { name?: unknown }) {
+  override onJoin(client: Client, options?: { name?: unknown; look?: unknown }) {
     const name = (sanitizeChat(options?.name) ?? `Driver-${client.sessionId.slice(0, 4)}`).slice(0, 24);
     const p = new PlayerState();
     const sx = 0, sz = 0;
-    Object.assign(p, { name, mode: 'foot', vid: 'ranger-tx4', x: sx, y: this.terrain.heightAt(sx, sz), z: sz, qx: 0, qy: 0, qz: 0, qw: 1, vx: 0, vy: 0, vz: 0, t: 0 });
+    Object.assign(p, { name, look: encodeAppearance(decodeAppearance(options?.look)), mode: 'foot', vid: 'ranger-tx4', x: sx, y: this.terrain.heightAt(sx, sz), z: sz, qx: 0, qy: 0, qz: 0, qw: 1, vx: 0, vy: 0, vz: 0, t: 0 });
     (this.state as { players: MapSchema<PlayerInstance> }).players.set(client.sessionId, p);
     this.sessions.set(client.sessionId, { accepted: null, limiter: new RateLimiter(Math.ceil(LIMITS.maxStateRateHz * 1.5)), chat: new RateLimiter(3), violations: 0 });
   }

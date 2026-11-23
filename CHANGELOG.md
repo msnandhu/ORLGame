@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.0: Phase 3 character engine
+
+- **Male and female characters, built from data.**
+  - A `CharacterAppearance` holds body, height (1.52–1.95 m), build, skin tone, face shape, eye colour, hairstyle and colour, beard, top and colour, trousers, boots, gloves, headwear and accessories.
+  - Every field is validated (`sanitizeAppearance`), so a hand-edited save or a hostile network message can only produce a valid look.
+  - The model is rebuilt from that data: separate male and female body shapes, 4 face shapes, 8 hairstyles, 5 beard styles, 5 tops, 3 boots, 3 glove types, 5 headwear options, and a backpack, sunglasses, scarf and watch. Height scales the whole skeleton and stride length; build widens the torso and limbs.
+- **Character creator.** Open it with Character on the main menu. The first New game opens it too. It has tabs for Body, Face & hair, Clothing and Gear, with live preview, drag-to-turn, Randomize, Default and Save. The look is stored in `orl.character.v1` and survives New game.
+- **Animation.** Twelve procedural poses are blended with smoothed weights: idle (breathing), walk, run, sprint, crouch, crouch-walk, jump, fall, land, climb, seated and talk. Walk, run and sprint blend by speed. Feet are planted automatically, and soles stay level.
+- **Controller.**
+  - New locomotion states: idle, walk, run, sprint, crouch, crouch-walk, jump, fall and land.
+  - Hold Alt to walk. A light stick tilt walks on a gamepad.
+  - Sprinting to empty leaves you winded until stamina is back to 30%.
+  - Hard landings cost a short recovery that scales with the fall.
+- **Enter and exit vehicles.**
+  - Pressing E walks you to the driver's door, turns you to the cab and climbs you in. A blocked path times out after 2.5 s and steps you to the door.
+  - Exiting climbs out of the driver's door. If that side is in deep water, you jump out of a safe side instead.
+  - The driver is visible in the seat and steers with the wheel. In both camp vehicles the figure is hidden in the cockpit camera.
+- **Interaction.** E now picks the best thing in reach, preferring what you face: a vehicle or a person. The prompt says what E will do.
+- **Camp mechanic NPC.**
+  - Marta Kell walks a routine around the shed and stops to face you when you talk.
+  - Her branching dialogue uses keys 1–5 or a click, and E or Esc ends it.
+  - She can repair a vehicle in or near the shed (the same full repair as the workshop) and restock repair kits. She also explains the driving modes, diff lock and routes.
+- **Multiplayer:** your look is sent when you join. The server decodes and re-encodes it, so other players see your character, seated in the vehicle when you drive.
+- **Tests:** 19 new Phase 3 tests, plus a multiplayer test for appearance sync. They cover appearance round-trips and hostile input, every locomotion state, the enter and exit sequence including the blocked-path timeout, interaction picking, the NPC routine, and dialogue actions and diverts. The suite is 67 tests.
+
 ## 0.4.0: Phase 2 vehicle engine
 
 - **Two vehicles, defined as data.**

@@ -13,6 +13,8 @@ export class CameraRig {
   yaw = 0; pitch = 0.28; distance = 7.5;
   mode: CameraMode = 'chase';
   sensitivity = 1; invertY = false;
+  /** first-person eye height on foot (follows the character's stature and crouch) */
+  eyeHeight = 1.62;
   private idle = 10;
   private pos = new Vector3(); private look = new Vector3(); private init = false;
   private free = new Vector3();
@@ -41,6 +43,15 @@ export class CameraRig {
     if (this.mode === 'first-person' || this.mode === 'hood') this.pitch = 0;
     this.init = false;
   }
+  /** Close orbit for the character creator: frames the whole figure, slightly off-centre to leave room for the panel. */
+  portrait(target: Vec3, yaw: number, stature: number) {
+    const cam = this.camera, d = 1.2 + stature * 0.85, fy = target.y + stature * 0.55;
+    const pos = new Vector3(target.x + Math.sin(yaw) * d, fy + 0.25, target.z + Math.cos(yaw) * d);
+    // shift the look point to the camera's right so the figure sits left of the panel
+    const right = new Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+    cam.position.copyFrom(pos); cam.setTarget(new Vector3(target.x, fy, target.z).add(right.scale(0.55)));
+    cam.fov = 0.9; this.init = false;
+  }
   /** Look direction yaw (0 = +Z). */
   get viewYaw() { const d = this.camera.getDirection(Vector3.Forward(true)); return Math.atan2(d.x, d.z); }
 
@@ -63,7 +74,7 @@ export class CameraRig {
         eye = new Vector3(target.x + off.x, target.y + off.y, target.z + off.z);
         baseYaw = heading; const f = new Vec3(0, 0, 1).applyQuaternion(q); basePitch = -Math.asin(clamp(f.y, -1, 1));
       } else {
-        eye = new Vector3(target.x, target.y + 1.62, target.z); baseYaw = heading; basePitch = 0;
+        eye = new Vector3(target.x, target.y + this.eyeHeight, target.z); baseYaw = heading; basePitch = 0;
       }
       // in a vehicle the mouse looks around relative to the vehicle; on foot it sets the heading
       const lookYaw = inVehicle ? baseYaw + (this.idle < 2 ? wrap(this.yaw - baseYaw - Math.PI) : 0) : this.yaw + Math.PI;

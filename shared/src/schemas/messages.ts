@@ -17,6 +17,7 @@ export function isPlayerTransform(v: unknown): v is PlayerTransform {
   if (!v || typeof v !== 'object') return false;
   const o = v as Record<string, unknown>;
   const nums = ['x', 'y', 'z', 'qx', 'qy', 'qz', 'qw', 'vx', 'vy', 'vz', 't'];
+  if (o.vid !== undefined && (typeof o.vid !== 'string' || !/^[a-z0-9-]{1,32}$/.test(o.vid))) return false;
   return (o.mode === 'foot' || o.mode === 'vehicle') && nums.every(k => typeof o[k] === 'number' && Number.isFinite(o[k] as number));
 }
 export function sanitizeChat(text: unknown): string | null {

@@ -5,6 +5,8 @@ export const SURFACE_NAMES = ['Grass', 'Dirt trail', 'Mud', 'Rock', 'Gravel'];
 
 export interface Boulder { x: number; y: number; z: number; r: number }
 export interface StaticBox { cx: number; cy: number; cz: number; hx: number; hy: number; hz: number; yaw: number; kind: string }
+/** Which face of which box a contact point entered through (see Terrain.boxPenetration). */
+export interface BoxContactMemory { box: number; axis: number; sign: number }
 export interface Tree { x: number; z: number; y: number; r: number; h: number; kind: number }
 
 /** Terrain data for the Phase 1 region: "Redstone Valley" (1.024 km x 1.024 km). Pure data, no rendering. */
@@ -137,22 +139,35 @@ export class Terrain {
     for (let i = 0; i < 5; i++) add('crate', -10 + (i % 3) * 1.2, -14, 1.1, 1.1, 1.1, Math.floor(i / 3) * 1.1, 0);
   }
 
-  /** Push-out of a point from static boxes. Returns penetration depth and writes the normal. */
-  boxPenetration(x: number, y: number, z: number, pad: number, nOut: [number, number, number]): number {
-    let best = 0;
-    for (const b of this.boxes) {
+  /**
+   * Push-out of a point from static boxes. Returns penetration depth and writes the normal.
+   * Pass a per-point `mem` to keep pushing out through the face the point entered by: without it a fast point
+   * that crosses the middle of a thin wall would be pushed out of the far side (tunnelling).
+   */
+  boxPenetration(x: number, y: number, z: number, pad: number, nOut: [number, number, number], mem?: BoxContactMemory): number {
+    let best = 0, hitBox = -1, hitAxis = 0, hitSign = 0;
+    for (let bi = 0; bi < this.boxes.length; bi++) {
+      const b = this.boxes[bi];
       const dx = x - b.cx, dy = y - b.cy, dz = z - b.cz;
       if (Math.abs(dx) > b.hx + b.hz + pad + 1 || Math.abs(dz) > b.hx + b.hz + pad + 1) continue;
       const c = Math.cos(b.yaw), s = Math.sin(b.yaw);
       const lx = dx * c - dz * s, lz = dx * s + dz * c;
-      const px = b.hx + pad - Math.abs(lx), py = b.hy + pad - Math.abs(dy), pz = b.hz + pad - Math.abs(lz);
-      if (px <= 0 || py <= 0 || pz <= 0) continue;
-      let pen: number, nx = 0, ny = 0, nz = 0;
-      if (px < py && px < pz) { pen = px; nx = Math.sign(lx); }
-      else if (pz < py) { pen = pz; nz = Math.sign(lz); }
-      else { pen = py; ny = Math.sign(dy); }
-      if (pen > best) { best = pen; nOut[0] = nx * c + nz * s; nOut[1] = ny; nOut[2] = -nx * s + nz * c; }
+      const l = [lx, dy, lz], h = [b.hx + pad, b.hy + pad, b.hz + pad];
+      const remembered = !!mem && mem.box === bi;
+      // a remembered contact stays live past the far face (up to 2 m) so it keeps pushing back the way it came in
+      let outside = false;
+      for (let a = 0; a < 3; a++) if (Math.abs(l[a]) >= h[a] && !(remembered && a === mem!.axis && -mem!.sign * l[a] < h[a] + 2)) outside = true;
+      if (outside) continue;
+      let axis: number, sign: number, pen: number;
+      if (remembered) { axis = mem!.axis; sign = mem!.sign; pen = h[axis] - sign * l[axis]; if (pen <= 0) continue; }
+      else {
+        const px = h[0] - Math.abs(lx), py = h[1] - Math.abs(dy), pz = h[2] - Math.abs(lz);
+        if (px < py && px < pz) { axis = 0; pen = px; } else if (pz < py) { axis = 2; pen = pz; } else { axis = 1; pen = py; }
+        sign = Math.sign(l[axis]) || 1;
+      }
+      if (pen > best) { best = pen; hitBox = bi; hitAxis = axis; hitSign = sign; const nx = axis === 0 ? sign : 0, ny = axis === 1 ? sign : 0, nz = axis === 2 ? sign : 0; nOut[0] = nx * c + nz * s; nOut[1] = ny; nOut[2] = -nx * s + nz * c; }
     }
+    if (mem) { if (hitBox < 0) mem.box = -1; else if (mem.box !== hitBox) { mem.box = hitBox; mem.axis = hitAxis; mem.sign = hitSign; } }
     return best;
   }
 

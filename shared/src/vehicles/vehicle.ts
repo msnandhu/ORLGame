@@ -1,11 +1,21 @@
 import { Vec3 } from '../math/vec';
 import { RigidBody } from './rigidbody';
-import { Terrain, Surface } from '../terrain/terrain';
+import { Terrain, Surface, type BoxContactMemory } from '../terrain/terrain';
 import { VehicleSpec } from './spec';
 import { clamp, smoothstep } from '../math/noise';
+import { DrivingMode, DRIVING_MODE_PROFILES } from './modes';
+import { VehicleCondition, BodyRegion, newCondition, regionOf, isPunctured } from './damage';
 
 export type DriveMode = '2H' | '4H' | '4L';
 export interface VehicleInput { throttle: number; brake: number; steer: number; handbrake: number }
+/** Reported for every damaging hit. point is in the vehicle's local frame. */
+export interface ImpactEvent { point: Vec3; severity: number; part: BodyRegion | 'suspension'; wheel: number }
+
+/** Hull contact closing speed (m/s) below which nothing gets damaged: parking bumps and scrapes are free. */
+export const IMPACT_THRESHOLD = 4;
+/** Suspension compression speed (m/s) at the bump stop below which it is not damaged. */
+export const BUMPSTOP_THRESHOLD = 3;
+const AMBIENT_C = 20;
 
 /** Per-surface tyre/ground properties. */
 export const SURFACE_PROPS: Record<Surface, { mu: number; roll: number; sink: number; stiff: number }> = {
@@ -29,6 +39,7 @@ export class Wheel {
   readonly contactNormal = new Vec3(0, 1, 0);
   readonly worldCenter = new Vec3();
   driveTorque = 0; brakeTorque = 0;
+  bumpHit = false;
   constructor(x: number, y: number, z: number, front: boolean) {
     this.mount.set(x, y, z); this.front = front; this.left = x > 0;
   }
@@ -63,6 +74,18 @@ export class Vehicle {
   hullContact = false;
   speedKmh = 0;
   lastInput: VehicleInput = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
+  // Phase 2: driving modes, electronics, condition
+  drivingMode: DrivingMode = 'normal';
+  condition: VehicleCondition = newCondition();
+  engineTemp = 85;            // deg C
+  overheated = false;         // stalled from heat; restarts once below 100 C
+  tcActive = false; absActive = false; crawlActive = false;
+  impactGrace = 0;            // seconds after a reset during which nothing is damaged
+  onImpact: ((e: ImpactEvent) => void) | null = null;
+  private hullWasContact: boolean[] = [];
+  private hullNowContact: boolean[] = [];
+  private hullBoxMem: BoxContactMemory[] = [];
+  private wheelBoxMem: BoxContactMemory[] = [0, 1, 2, 3].map(() => ({ box: -1, axis: 0, sign: 1 }));
 
   constructor(public spec: VehicleSpec, public terrain: Terrain) {
     this.body = new RigidBody(spec.mass, new Vec3(...spec.inertia));
@@ -72,9 +95,31 @@ export class Vehicle {
     const [hx, hy, hz] = spec.halfExtents, oy = spec.hullOffsetY;
     for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) this.hullPoints.push(new Vec3(sx * hx, oy + sy * hy, sz * hz));
     // belly / skid-plate points (high-centering), bumper mid points, roof mid points
-    for (const z of [-0.9, 0, 0.9]) this.hullPoints.push(new Vec3(0, -0.6, z));
+    for (const z of [-0.9, 0, 0.9]) this.hullPoints.push(new Vec3(0, spec.bellyY, z * hz / 2.3));
     for (const sz of [-1, 1]) this.hullPoints.push(new Vec3(0, oy - hy, sz * (hz + 0.1)), new Vec3(0, oy + hy, sz * hz * 0.5));
     for (const sx of [-1, 1]) this.hullPoints.push(new Vec3(sx * hx, oy, 0));
+    this.hullWasContact = this.hullPoints.map(() => false);
+    this.hullNowContact = this.hullPoints.map(() => false);
+    this.hullBoxMem = this.hullPoints.map(() => ({ box: -1, axis: 0, sign: 1 }));
+  }
+
+  /** Effective rolling radius: a flat tyre runs on the rim. */
+  wheelRadiusOf(i: number) { return this.spec.wheelRadius - (isPunctured(this.condition, i) ? 0.07 : 0); }
+
+  /** Select a driving mode; it also sets the transfer case and lockers the mode is designed for. */
+  setDrivingMode(m: DrivingMode) {
+    this.drivingMode = m;
+    const r = DRIVING_MODE_PROFILES[m].recommend;
+    if (r) { this.driveMode = r.range; this.diffLock = r.diffLock; }
+  }
+
+  /** Whether the engine can be (re)started now. */
+  canStart(): boolean {
+    return this.fuel > 0 && !this.flooded && this.condition.engine < 1 && !(this.overheated && this.engineTemp > 100);
+  }
+  /** Engine power multiplier from wear and heat (1 = full power). */
+  powerFactor(): number {
+    return (1 - 0.55 * this.condition.engine) * (1 - 0.8 * smoothstep(112, 122, this.engineTemp));
   }
 
   get ratio(): number {
@@ -101,8 +146,12 @@ export class Vehicle {
     b.quat.setFromAxisAngle(new Vec3(0, 1, 0), heading);
     b.vel.set(0, 0, 0); b.angVel.set(0, 0, 0);
     for (const w of this.wheels) { w.omega = 0; w.compression = w.prevCompression = 0; }
-    this.gear = 1; this.rpm = this.spec.idleRpm; this.flooded = false; this.engineOn = this.fuel > 0;
-    this.upsideDownTimer = 0;
+    this.gear = 1; this.rpm = this.spec.idleRpm; this.flooded = false;
+    if (this.overheated && this.engineTemp < 100) this.overheated = false;
+    this.engineOn = this.canStart();
+    this.upsideDownTimer = 0; this.impactGrace = 1;
+    this.hullWasContact.fill(false); for (const w of this.wheels) w.bumpHit = false;
+    for (const m of [...this.hullBoxMem, ...this.wheelBoxMem]) m.box = -1;
   }
 
   /** Recover: lift and set upright, keeping heading. */
@@ -154,11 +203,32 @@ export class Vehicle {
       // auto hold: at a standstill with no pedal input the brakes hold the vehicle (no idle creep or rolling back)
       if (throttle < 0.05 && Math.abs(vFwd) < 0.8 && this.reverseHold === 0) brake = Math.max(brake, 0.4);
     }
+    const mode = DRIVING_MODE_PROFILES[this.drivingMode];
+    const cond = this.condition;
+    if (this.impactGrace > 0) this.impactGrace -= dt;
+    // pedal map
+    throttle = mode.throttleGain * Math.pow(clamp(throttle, 0, 1), mode.throttleExp);
+    // crawl control: holds walking pace up and down hill using throttle and brakes
+    this.crawlActive = false;
+    if (mode.crawlKmh !== null && this.gear !== 0) {
+      const over = this.speedKmh - mode.crawlKmh;
+      if (over > 0) { this.crawlActive = true; throttle *= Math.max(0, 1 - over / 2); brake = Math.max(brake, clamp(over / 4, 0, 0.7)); }
+    }
+    // traction control (engine): cut torque when a driven wheel spins past the mode's slip target
+    this.tcActive = false;
+    if (mode.tcSlip !== null && throttle > 0.05) {
+      let maxSlip = 0;
+      for (const w of this.wheels) if (w.contact && this.driven(w)) maxSlip = Math.max(maxSlip, Math.abs(w.slipRatio));
+      const excess = maxSlip - mode.tcSlip;
+      if (excess > 0) { throttle *= clamp(1 - excess * 1.5, 0.15, 1); this.tcActive = true; }
+    }
 
     // ---------- Steering (speed sensitive, smoothed, Ackermann) ----------
     const steerLimit = s.maxSteer * (1 - 0.55 * smoothstep(5, 30, Math.abs(vFwd)));
-    const target = input.steer * steerLimit;
-    const rate = 2.2 * dt;
+    // bent steering / a flat front tyre pull the car towards the damaged side (+X is left; positive steer is right)
+    const pull = -((cond.suspension[0] - cond.suspension[1]) * 0.05 + ((isPunctured(cond, 0) ? 1 : 0) - (isPunctured(cond, 1) ? 1 : 0)) * 0.03);
+    const target = clamp(input.steer * steerLimit + pull * smoothstep(1, 6, Math.abs(vFwd)), -s.maxSteer, s.maxSteer);
+    const rate = 2.2 * mode.steerRateMul * dt;
     this.steerSmoothed += clamp(target - this.steerSmoothed, -rate, rate);
     const st = this.steerSmoothed;
     const wb = s.wheelFrontZ - s.wheelRearZ;
@@ -170,8 +240,9 @@ export class Vehicle {
     } else for (const w of this.wheels) w.steer = 0;
 
     // ---------- Suspension raycasts ----------
-    const maxLen = s.restLength + s.wheelRadius;
-    for (const w of this.wheels) {
+    for (let wi = 0; wi < 4; wi++) {
+      const w = this.wheels[wi];
+      const maxLen = s.restLength + this.wheelRadiusOf(wi);
       _p.copy(w.mount).applyQuaternion(q).add(b.pos);
       _n.copy(_up).negate();
       const t = T.raycast(_p.x, _p.y, _p.z, _n.x, _n.y, _n.z, maxLen + 0.1, _nArr, _hit);
@@ -202,10 +273,20 @@ export class Vehicle {
       const w = this.wheels[i];
       if (!w.contact) continue;
       const cv = (w.compression - w.prevCompression) / dt;
-      let F = s.springRate * w.compression + (cv > 0 ? s.bumpDamping : s.reboundDamping) * cv;
-      if (w.compression > s.maxTravel) F += (w.compression - s.maxTravel) * 400000 + Math.max(cv, 0) * 20000;
+      const sd = cond.suspension[i]; // a damaged corner sags and wallows
+      let F = s.springRate * (1 - 0.4 * sd) * w.compression + (cv > 0 ? s.bumpDamping : s.reboundDamping) * mode.dampingMul * (1 - 0.5 * sd) * cv;
+      if (w.compression > s.maxTravel) {
+        F += (w.compression - s.maxTravel) * 400000 + Math.max(cv, 0) * 20000;
+        if (!w.bumpHit && cv > BUMPSTOP_THRESHOLD && this.impactGrace <= 0) {
+          const sev = Math.min(1, (cv - BUMPSTOP_THRESHOLD) / 6 / s.damageResistance);
+          cond.suspension[i] = Math.min(1, cond.suspension[i] + sev * 0.45);
+          cond.tyres[i] = Math.min(1, cond.tyres[i] + sev * (w.surface === Surface.Rock ? 0.8 : 0.25));
+          this.onImpact?.({ point: w.mount.clone(), severity: sev, part: 'suspension', wheel: i });
+        }
+        w.bumpHit = true;
+      } else if (w.compression < s.maxTravel - 0.05) w.bumpHit = false;
       const other = comp[i ^ 1];
-      F += (w.compression - other) * s.antiRoll;
+      F += (w.compression - other) * s.antiRoll * mode.antiRollMul;
       F = Math.max(0, F);
       w.load = F * Math.max(0.2, _up.dot(w.contactNormal));
       _f.copy(_up).multiplyScalar(F);
@@ -223,6 +304,18 @@ export class Vehicle {
     const intakeY = _p.copy(new Vec3(0, s.intakeHeight, 1.6)).applyQuaternion(q).add(b.pos).y;
     if (this.engineOn && intakeY < T.waterLevel) { this.engineOn = false; this.flooded = true; }
     if (this.fuel <= 0) this.engineOn = false;
+    if (cond.engine >= 1) this.engineOn = false;
+    // ---------- Engine temperature ----------
+    if (this.engineOn) {
+      const load = throttle * this.rpm / s.redlineRpm;
+      const airflow = Math.min(this.speedKmh, 60) / 60 * 4 * (1 - cond.cooling);
+      const target = 88 + 14 * load + cond.cooling * (15 + 55 * load) - airflow;
+      this.engineTemp += (target - this.engineTemp) * Math.min(1, dt * 0.08);
+      if (this.engineTemp > 118) cond.engine = Math.min(1, cond.engine + dt * 0.004 * (this.engineTemp - 118));
+      if (this.engineTemp > 125) { this.engineOn = false; this.overheated = true; }
+    } else this.engineTemp += (AMBIENT_C - this.engineTemp) * Math.min(1, dt * 0.012);
+    // once cooled the driver can restart it
+    if (this.overheated && this.engineTemp < 100) { this.overheated = false; if (this.canStart()) this.engineOn = true; }
 
     if (this.shiftTimer > 0) this.shiftTimer -= dt;
     const clutchRpm = s.idleRpm + throttle * 1100;
@@ -236,7 +329,7 @@ export class Vehicle {
     let tq = 0;
     if (this.engineOn) {
       const limiter = 1 - smoothstep(s.redlineRpm - 150, s.redlineRpm + 80, Math.abs(wheelRpm));
-      tq = this.torqueAt(this.rpm) * throttle * limiter;
+      tq = this.torqueAt(this.rpm) * throttle * limiter * this.powerFactor();
       // engine braking when off-throttle and engaged
       tq -= (1 - throttle) * (25 + this.rpm * 0.018) * (Math.abs(wheelRpm) > s.idleRpm ? 1 : 0) * Math.sign(wheelRpm);
       this.fuel = Math.max(0, this.fuel - (0.00012 + throttle * this.rpm * 2.2e-7) * dt * 60);
@@ -247,24 +340,38 @@ export class Vehicle {
 
     // ---------- Automatic gearbox ----------
     if (this.automatic && this.gear > 0 && this.shiftTimer <= 0 && this.engineOn) {
-      const up = 2300 + 1500 * throttle;
+      const up = Math.min(s.redlineRpm * (0.52 + 0.34 * throttle) + mode.shiftBias, s.redlineRpm - 150);
+      const down = Math.max(s.idleRpm * 1.25, s.idleRpm * 1.6 + mode.shiftBias * 0.5);
+      const minGear = this.driveMode === '4L' ? 1 : Math.min(mode.startGear, s.gears.length);
+      if (this.gear < minGear) this.gear = minGear;
       const g = this.gear;
       if (Math.abs(wheelRpm) > up && g < s.gears.length && Math.abs(vFwd) > 1.5) { this.gear++; this.shiftTimer = 0.25; }
-      else if (g > 1) {
+      else if (g > minGear) {
         const lowerRpm = Math.abs(wheelRpm) * s.gears[g - 2] / s.gears[g - 1];
-        if (Math.abs(wheelRpm) < 1250 && lowerRpm < up - 600) { this.gear--; this.shiftTimer = 0.2; }
+        if (Math.abs(wheelRpm) < down && lowerRpm < up - 600) { this.gear--; this.shiftTimer = 0.2; }
       }
     }
 
     // ---------- Tyres ----------
     const mEff = s.mass / 4;
-    for (const w of this.wheels) {
+    this.absActive = false;
+    for (let wi = 0; wi < 4; wi++) {
+      const w = this.wheels[wi];
       const isDriven = this.driven(w);
       w.driveTorque = isDriven ? shaft / drivenWheels.length : 0;
-      const bt = (w.front ? s.brakeTorqueFront : s.brakeTorqueRear) * brake + (!w.front ? s.handbrakeTorque * input.handbrake : 0);
+      let service = (w.front ? s.brakeTorqueFront : s.brakeTorqueRear) * brake;
+      // ABS: release a wheel that starts to lock (uses last step's slip) above walking pace
+      if (mode.abs && service > 0 && w.contact && Math.abs(vFwd) > 1.5 && w.slipRatio * Math.sign(vFwd) < -0.15) { service *= 0.25; this.absActive = true; }
+      // brake traction control: brake a wheel spinning much faster than its axle partner so the open diff drives the other
+      if (mode.brakeTc && throttle > 0.1 && isDriven && w.contact && !this.diffLock) {
+        const partner = this.wheels[wi ^ 1];
+        const excess = Math.abs(w.slipRatio) - Math.abs(partner.slipRatio) - 0.25;
+        if (excess > 0) { service += clamp(excess, 0, 1) * s.brakeTorqueFront * 0.5; this.tcActive = true; }
+      }
+      const bt = service + (!w.front ? s.handbrakeTorque * input.handbrake : 0);
       w.brakeTorque = bt;
       const I = s.wheelInertia + (isDriven ? engInertiaPerWheel : 0);
-      const R = s.wheelRadius - w.mudSink * 0.5;
+      const R = this.wheelRadiusOf(wi) - w.mudSink * 0.5;
       let Fx = 0, Fy = 0;
       if (w.contact && w.load > 0) {
         const sp = SURFACE_PROPS[w.surface];
@@ -275,7 +382,7 @@ export class Vehicle {
         _wl.crossVectors(n, _wf).normalize(); // points to vehicle's left (+X local)
         b.pointVelocity(w.contactPoint, _v);
         const vx = _v.dot(_wf), vy = _v.dot(_wl);
-        const mu = sp.mu * s.tireGrip * (w.inWater ? 0.85 : 1);
+        const mu = sp.mu * s.tireGrip * (w.inWater ? 0.85 : 1) * (isPunctured(cond, wi) ? 0.6 : 1 - 0.12 * cond.tyres[wi]);
         const N = Math.min(w.load, s.mass * GRAVITY * 1.6);
         const maxF = mu * N;
         // Longitudinal: slip ratio with low-speed denominator
@@ -329,7 +436,11 @@ export class Vehicle {
     // ---------- Hull collisions (terrain, boulders, trees) ----------
     this.hullContact = false;
     this.terrain.query(b.pos.x, b.pos.z, 3.5, _qb, _qt);
-    for (const lp of this.hullPoints) {
+    this.hullNowContact.fill(false);
+    for (const k in this.stepImpact) this.stepImpact[k as BodyRegion] = Math.max(0, this.stepImpact[k as BodyRegion] - dt * 2);
+    for (let hi = 0; hi < this.hullPoints.length; hi++) {
+      const lp = this.hullPoints[hi];
+      this.hullIndex = hi;
       _p.copy(lp).applyQuaternion(q).add(b.pos);
       // terrain
       const gh = T.heightAt(_p.x, _p.z);
@@ -339,7 +450,7 @@ export class Vehicle {
         this.contactForce(_p, _n, (gh - _p.y) * _n.y, 0.6);
       }
       if (Math.abs(b.pos.x) < 40 && Math.abs(b.pos.z) < 40) {
-        const pen = T.boxPenetration(_p.x, _p.y, _p.z, 0, _nArr);
+        const pen = T.boxPenetration(_p.x, _p.y, _p.z, 0, _nArr, this.hullBoxMem[hi]);
         if (pen > 0) { _n.set(_nArr[0], _nArr[1], _nArr[2]); this.contactForce(_p, _n, pen, 0.5); }
       }
       for (const i of _qb) {
@@ -356,9 +467,12 @@ export class Vehicle {
         if (d < tr.r + 0.05 && d > 1e-4) { _n.divideScalar(d); this.contactForce(_p, _n, tr.r + 0.05 - d, 0.4); }
       }
     }
+    this.hullIndex = -1;
+    for (let hi = 0; hi < this.hullPoints.length; hi++) this.hullWasContact[hi] = this.hullNowContact[hi];
     // Wheels vs camp structures
-    if (Math.abs(b.pos.x) < 40 && Math.abs(b.pos.z) < 40) for (const w of W) {
-      const pen = T.boxPenetration(w.worldCenter.x, w.worldCenter.y, w.worldCenter.z, s.wheelRadius * 0.9, _nArr);
+    if (Math.abs(b.pos.x) < 40 && Math.abs(b.pos.z) < 40) for (let wi = 0; wi < 4; wi++) {
+      const w = W[wi];
+      const pen = T.boxPenetration(w.worldCenter.x, w.worldCenter.y, w.worldCenter.z, s.wheelRadius * 0.9, _nArr, this.wheelBoxMem[wi]);
       if (pen > 0) { _n.set(_nArr[0], _nArr[1], _nArr[2]); this.contactForce(w.worldCenter, _n, pen, 0.4); }
     }
     // Wheels vs trees (sideways blocking)
@@ -398,12 +512,41 @@ export class Vehicle {
     void submerged;
   }
 
+  private hullIndex = -1;
+  /** recent strongest hit per region (fades over ~0.5 s): several hull points, or the rebound of one crash, count once */
+  private stepImpact: Record<BodyRegion, number> = { front: 0, rear: 0, left: 0, right: 0, roof: 0, under: 0 };
+
+  /** Apply a hull impact (closing speed in m/s) to the condition model. */
+  private registerImpact(lp: Vec3, speed: number) {
+    const s = this.spec, cond = this.condition;
+    const full = Math.min(1, (speed - IMPACT_THRESHOLD) / 12 / s.damageResistance);
+    const region = regionOf(lp.x, lp.y, lp.z, s.halfExtents, s.hullOffsetY);
+    const sev = full - this.stepImpact[region];
+    if (sev <= 0.01) return;
+    this.stepImpact[region] = full;
+    cond.body[region] = Math.min(1, cond.body[region] + sev * 0.6);
+    if (region === 'front') { cond.cooling = Math.min(1, cond.cooling + sev * 0.7); cond.engine = Math.min(1, cond.engine + sev * 0.2); }
+    if (region === 'under') cond.engine = Math.min(1, cond.engine + sev * 0.12);
+    if (region === 'left' || region === 'right') {
+      // side hits bend the steering/suspension arms on the nearer axle
+      const left = region === 'left', front = lp.z > 0;
+      const wi = (front ? 0 : 2) + (left ? 0 : 1);
+      cond.suspension[wi] = Math.min(1, cond.suspension[wi] + sev * 0.3);
+    }
+    this.onImpact?.({ point: lp.clone(), severity: sev, part: region, wheel: -1 });
+  }
+
   /** Penalty contact with Coulomb friction. */
   private contactForce(p: Vec3, n: Vec3, pen: number, mu: number) {
     const b = this.body;
     this.hullContact = true;
     b.pointVelocity(p, _v);
     const vn = _v.dot(n);
+    const hi = this.hullIndex;
+    if (hi >= 0) {
+      if (!this.hullWasContact[hi] && !this.hullNowContact[hi] && vn < -IMPACT_THRESHOLD && this.impactGrace <= 0) this.registerImpact(this.hullPoints[hi], -vn);
+      this.hullNowContact[hi] = true;
+    }
     const k = 260000, c = 22000;
     let Fn = k * pen - c * vn;
     if (Fn <= 0) return;

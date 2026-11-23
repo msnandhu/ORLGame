@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.0: Phase 2 vehicle engine
+
+- **Two vehicles, defined as data.**
+  - Each `VehicleSpec` now carries an id, category, description, drivetrain, damage resistance, belly height and visual look.
+  - `VEHICLES` and `vehicleStats()` give the garage figures, derived from the same numbers the simulation uses.
+  - New: the **Bramble RC2**, a short open-top V8 rock crawler. It has 39" tyres, a 78:1 crawl ratio, 0.6 m of belly clearance and a 7 m turning circle (the Ranger's is 9 m).
+  - Both vehicles park at camp. Walk up to either one and press E.
+- **Six driving modes** on C: Normal, Sport, Off-road, Rock crawl, Snow and Mud.
+  - Each mode sets the pedal map, engine and brake traction control, ABS, shift points, the pull-away gear (Snow uses 2nd), crawl control (Rock crawl), anti-roll, damping and steering rate.
+  - Each mode also selects its transfer case and lockers.
+  - The HUD shows the active mode and lights TC, ABS or CRAWL CONTROL when they intervene.
+- **Collision damage.**
+  - Hull impacts above 4 m/s damage six body regions. Front hits also damage the radiator and engine, and side hits damage the suspension.
+  - Hard landings damage the suspension and tyres, and tyres can puncture.
+  - Damage changes the driving: less power, a running-hot engine that cuts power and then stalls, sagging corners, steering pull, and a flat tyre that is smaller and loses grip.
+  - The body panels dent where you hit. A damaged radiator steams and a failing engine smokes.
+  - A HUD diagram shows the condition, plus engine temperature.
+- **Repairs.** K uses a field repair kit (2 per trip). Pressing F in the camp shed (the workshop) restores everything and restocks the kits. "Return to base camp" now tows you there and keeps your damage, so the workshop is the fix.
+- **Saves** store both vehicles, their condition and modes, and which one you were driving. Older saves still load.
+- **Multiplayer** now syncs which vehicle each player drives, and the server checks the id against the catalog.
+- **Fixed:** a fast vehicle could punch through the thin camp shed walls. Contacts now remember the face they entered by.
+- **Tests:** 17 new Phase 2 tests cover the catalog, both vehicles, every mode, damage, repairs and thin walls, plus a vehicle-id validation test. The suite is 47 tests.
+
 ## 0.3.1 — WebGPU start-up hotfix
 
 - Fixed: the game failed to start with "The plugin TerrainSplat can't be added to the material terrain" when the browser ran the WebGPU renderer. The terrain splat shader now has a WGSL version as well as GLSL.

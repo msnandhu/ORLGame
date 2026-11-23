@@ -1,6 +1,6 @@
 # OFF-ROAD LEGENDS
 
-Browser open-world multiplayer off-road game. **Current milestone: Phase 0 (technical foundation), v0.2.0**, built on top of the Phase 1 driving prototype.
+Browser open-world multiplayer off-road game. **Current milestone: Phase 2 (vehicle engine), v0.4.0.** This adds two data-driven vehicles, six driving modes, collision damage and repairs.
 
 Stack: TypeScript (strict) · Babylon.js 9 (WebGPU, falling back to WebGL2) · Havok physics + custom 240 Hz drivetrain/tyre simulation · Colyseus 0.18 server-authoritative multiplayer · Vite · Vitest.
 
@@ -30,7 +30,9 @@ Single player works without the server. For multiplayer, start the server, then 
 | Camera mode | V (chase, far, hood, cockpit / on foot: chase, first-person, free) | |
 | Handbrake / jump | Space | A |
 | Sprint / crouch | Shift / C | |
+| Driving mode (Normal, Sport, Off-road, Rock crawl, Snow, Mud) | C | X |
 | 2H / 4H / 4L, diff lock, auto/manual, shift | G, L, T, X/Z | LB/RB shift |
+| Repair kit (stopped) / workshop repair in the camp shed | K / F | |
 | Headlights, recover | N, R | |
 | Map, help, pause, quick save | M, H, P or Esc, F5 | Start |
 

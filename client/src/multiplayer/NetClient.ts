@@ -3,7 +3,7 @@ import { ROOM_NAME, MESSAGE, NETWORK_TICK_HZ, type PlayerTransform } from '@orl/
 import { log } from '../core/logger';
 
 export interface RemotePlayer {
-  id: string; name: string; mode: 'foot' | 'vehicle';
+  id: string; name: string; mode: 'foot' | 'vehicle'; vid: string;
   /** buffered server snapshots for interpolation */
   buf: { at: number; s: PlayerTransform }[];
 }
@@ -37,8 +37,8 @@ export class NetClient {
           if (id === room.sessionId) return;
           seen.add(id);
           let r = this.remotes.get(id);
-          if (!r) { r = { id, name: p.name, mode: p.mode, buf: [] }; this.remotes.set(id, r); }
-          r.name = p.name; r.mode = p.mode;
+          if (!r) { r = { id, name: p.name, mode: p.mode, vid: p.vid ?? '', buf: [] }; this.remotes.set(id, r); }
+          r.name = p.name; r.mode = p.mode; r.vid = p.vid ?? '';
           const last = r.buf[r.buf.length - 1];
           if (!last || last.s.t !== p.t) r.buf.push({ at: now, s: { mode: p.mode, x: p.x, y: p.y, z: p.z, qx: p.qx, qy: p.qy, qz: p.qz, qw: p.qw, vx: p.vx, vy: p.vy, vz: p.vz, t: p.t } });
           if (r.buf.length > 30) r.buf.shift();

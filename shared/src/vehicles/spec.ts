@@ -1,6 +1,21 @@
-/** Data-driven vehicle definition. Phase 2 garage upgrades will modify these numbers. */
+/** Visual description used by the client to build the procedural model (no art in the sim). */
+export interface VehicleLook {
+  style: 'wagon' | 'crawler';
+  paint: [number, number, number];   // linear-ish RGB 0..1
+  accent: [number, number, number];
+  snorkel: boolean;
+}
+
+/** Data-driven vehicle definition. Every handling number lives here, so a new vehicle is new data, not new code. */
 export interface VehicleSpec {
+  id: string;
   name: string;
+  category: 'expedition' | 'rock-crawler';
+  description: string;
+  drivetrain: 'part-time-4wd';
+  damageResistance: number;      // 1 = baseline; higher takes less damage per impact
+  bellyY: number;                // skid plate height relative to CoM (ground clearance)
+  look: VehicleLook;
   mass: number;                 // kg
   inertia: [number, number, number]; // kg m^2 (x pitch... body axes)
   halfExtents: [number, number, number]; // collision hull half sizes (x,y,z) relative to CoM-centred box
@@ -23,7 +38,14 @@ export interface VehicleSpec {
 
 /** "Ranger TX4" — fictional mid-size 4x4 pickup/wagon. Numbers modeled on a typical 3.0 L turbo-diesel 4x4. */
 export const RANGER_TX4: VehicleSpec = {
+  id: 'ranger-tx4',
   name: 'Ranger TX4',
+  category: 'expedition',
+  description: 'Mid-size turbo-diesel wagon. Comfortable, long legged, carries fuel for a long day.',
+  drivetrain: 'part-time-4wd',
+  damageResistance: 1.0,
+  bellyY: -0.6,
+  look: { style: 'wagon', paint: [0.62, 0.16, 0.08], accent: [0.08, 0.08, 0.08], snorkel: true },
   mass: 2150,
   inertia: [3600, 4200, 1300],
   halfExtents: [0.95, 0.62, 2.3],
@@ -42,4 +64,34 @@ export const RANGER_TX4: VehicleSpec = {
   tireLongStiffness: 11, tireLatStiffness: 9,
   intakeHeight: 0.35,
   fuelCapacity: 80,
+};
+
+/** "Bramble RC2" — fictional short-wheelbase rock crawler: V8 petrol, portal-style clearance, 35" tyres, deep low range. */
+export const BRAMBLE_RC2: VehicleSpec = {
+  id: 'bramble-rc2',
+  name: 'Bramble RC2',
+  category: 'rock-crawler',
+  description: 'Short, light and tall. Huge tyres and a 4:1 low range crawl over rock; twitchy and thirsty at speed.',
+  drivetrain: 'part-time-4wd',
+  damageResistance: 1.3,
+  bellyY: -0.42,
+  look: { style: 'crawler', paint: [0.86, 0.6, 0.08], accent: [0.1, 0.1, 0.1], snorkel: false },
+  mass: 1680,
+  inertia: [2300, 2600, 900],
+  halfExtents: [0.9, 0.6, 1.95],
+  hullOffsetY: 0.32,
+  wheelX: 0.86, wheelFrontZ: 1.2, wheelRearZ: -1.2, mountY: 0.12,
+  wheelRadius: 0.5, wheelWidth: 0.36, wheelInertia: 3.2,
+  restLength: 0.92, maxTravel: 0.72,
+  springRate: 14500, bumpDamping: 2000, reboundDamping: 3000, antiRoll: 2500,
+  maxSteer: 0.68,
+  torqueCurve: [[700, 220], [1500, 380], [2500, 430], [3500, 440], [4500, 400], [5200, 330], [5800, 250]],
+  idleRpm: 750, redlineRpm: 5600, engineInertia: 0.18,
+  gears: [4.0, 2.4, 1.55, 1.15, 0.9], reverseRatio: 3.6, finalDrive: 4.88, lowRange: 4.0,
+  brakeTorqueFront: 2900, brakeTorqueRear: 2200, handbrakeTorque: 3800,
+  dragCoef: 0.5 * 1.2 * 0.6 * 2.9,
+  tireGrip: 1.12,
+  tireLongStiffness: 10, tireLatStiffness: 8.5,
+  intakeHeight: 0.55,
+  fuelCapacity: 70,
 };

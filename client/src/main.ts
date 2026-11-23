@@ -26,7 +26,7 @@ function play(fromSave: boolean) {
   app.newGame(fromSave);
   $('menu').classList.add('hidden'); $('hud').classList.remove('hidden');
   app.setPaused(false); app.start();
-  app.hud.toast(fromSave ? 'Save loaded' : `Walk to the ${app.vehicle.spec.name} and press E`);
+  app.hud.toast(fromSave ? 'Save loaded' : 'Two vehicles are parked at camp: walk up to one and press E');
 }
 
 // ---------- main menu ----------
@@ -48,9 +48,8 @@ $('btn-resume').addEventListener('click', () => { app.setPaused(false); canvas.r
 $('btn-save').addEventListener('click', () => app.save());
 $('btn-recover').addEventListener('click', () => { app.vehicle.recover(); app.setPaused(false); app.hud.toast('Vehicle recovered'); });
 $('btn-camp').addEventListener('click', () => {
-  const wasIn = app.inVehicle; const fuel = app.vehicle.fuel;
-  app.newGame(false); app.vehicle.fuel = fuel; if (wasIn) app.enterVehicle();
-  app.setPaused(false); app.hud.toast('Returned to base camp');
+  app.returnToCamp();
+  app.setPaused(false); app.hud.toast('Towed back to base camp: drive into the shed and press F for the workshop');
 });
 $('btn-settings').addEventListener('click', () => $('settings').classList.remove('hidden'));
 $('btn-help').addEventListener('click', () => $('help').classList.toggle('hidden'));

@@ -27,11 +27,18 @@
     <div id="gear">N</div>
     <div id="trans" class="chip">AUTO</div>
     <div id="indicators">
+      <span id="ind-mode" class="ind mode">NORMAL</span>
       <span id="ind-drive" class="ind on">4H</span>
+      <span id="ind-tc" class="ind">TC</span>
+      <span id="ind-abs" class="ind">ABS</span>
+      <span id="ind-crawl" class="ind warn info">CRAWL CONTROL</span>
       <span id="ind-lock" class="ind">DIFF LOCK</span>
       <span id="ind-hb" class="ind warn">HANDBRAKE</span>
       <span id="ind-flood" class="ind warn">ENGINE FLOODED</span>
+      <span id="ind-hot" class="ind warn">ENGINE OVERHEATING</span>
     </div>
+    <div id="temp"><div class="bar-label">ENGINE <span id="temp-val">85</span> °C</div><div class="bar"><div id="temp-fill"></div></div></div>
+    <div id="damage"><canvas id="damage-canvas" width="96" height="150"></canvas><div id="damage-label">CONDITION</div><div id="kits">KITS 2</div></div>
     <div id="fuel"><div class="bar-label">FUEL</div><div class="bar"><div id="fuel-fill"></div></div></div>
     <div id="wheels"><div class="w" id="w0"></div><div class="w" id="w1"></div><div class="w" id="w2"></div><div class="w" id="w3"></div><div id="wlabel">WHEEL LOAD / SLIP</div></div>
   </div>
@@ -47,8 +54,9 @@
       <p><b>W A S D</b> move · <b>Shift</b> sprint · <b>Space</b> jump · <b>C</b> crouch<br><b>E</b> enter vehicle</p></div>
     <div><h3>Driving</h3>
       <p><b>W / S</b> throttle / brake (hold S when stopped to reverse)<br><b>A / D</b> steer · <b>Space</b> handbrake<br>
-      <b>G</b> drive mode 2H → 4H → 4L · <b>L</b> diff lock<br><b>T</b> auto / manual · <b>X / Z</b> shift up / down (manual)<br>
-      <b>F</b> hold at the camp fuel pump to refuel · <b>N</b> headlights<br><b>R</b> recover vehicle (upright) · <b>E</b> exit</p></div>
+      <b>C</b> driving mode: Normal / Sport / Off-road / Rock crawl / Snow / Mud<br>
+      <b>G</b> transfer case 2H → 4H → 4L · <b>L</b> diff lock<br><b>T</b> auto / manual · <b>X / Z</b> shift up / down (manual)<br>
+      <b>F</b> hold at the camp fuel pump to refuel · <b>N</b> headlights<br><b>R</b> recover vehicle (upright) · <b>E</b> exit<br><b>K</b> use a repair kit (stopped) · <b>F</b> in the camp shed: workshop repair<br>Walk up to either camp vehicle and press <b>E</b> to drive it</p></div>
     <div><h3>Camera &amp; game</h3>
       <p><b>Mouse</b> look (click to capture) · <b>Wheel</b> zoom<br><b>V</b> camera: chase / far / hood / first-person (driving)<br>chase / first-person / free-fly (on foot; free-fly: WASD, Q/E down/up)<br>
       <b>M</b> map · <b>H</b> this help · <b>P / Esc</b> pause · <b>F5</b> quick save<br>Gamepad: sticks, RT/LT, A, Y = enter/exit</p></div>

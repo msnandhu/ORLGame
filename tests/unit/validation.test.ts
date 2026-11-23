@@ -38,3 +38,14 @@ describe('server movement validation', () => {
     expect(r.allow(1100)).toBe(true);
   });
 });
+
+describe('phase 2 vehicle id in player state', () => {
+  it('accepts a catalog-style id and rejects junk', async () => {
+    const { isPlayerTransform } = await import('@orl/shared');
+    const base = { mode: 'vehicle', x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1, vx: 0, vy: 0, vz: 0, t: 1 };
+    expect(isPlayerTransform({ ...base, vid: 'bramble-rc2' })).toBe(true);
+    expect(isPlayerTransform(base)).toBe(true);
+    expect(isPlayerTransform({ ...base, vid: '<script>' })).toBe(false);
+    expect(isPlayerTransform({ ...base, vid: 42 })).toBe(false);
+  });
+});

@@ -2,7 +2,7 @@ import { Scene } from '@babylonjs/core/scene';
 import type { AbstractEngine } from '@babylonjs/core/Engines/abstractEngine';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
-import { Terrain, Vehicle, Character, RANGER_TX4, WORLD_SEED, PHYSICS_HZ, Vec3, Quat, type Settings, type PlayerTransform } from '@orl/shared';
+import { Terrain, Vehicle, Character, VEHICLES, vehicleById, DRIVING_MODE_PROFILES, nextDrivingMode, repairFull, repairWithKit, WORLD_SEED, PHYSICS_HZ, Vec3, Quat, type Settings, type PlayerTransform, type ImpactEvent } from '@orl/shared';
 import { createEngine, type Backend } from '../engine/createEngine';
 import { AssetManager } from '../assets/AssetManager';
 import { detailTextures, type RawImage } from '../assets/proceduralTextures';
@@ -10,6 +10,7 @@ import { terrainLayers } from '../assets/terrainTextures';
 import { HavokWorld, type HavokModule } from '../physics/HavokWorld';
 import { Environment } from '../rendering/Environment';
 import { WheelParticles } from '../rendering/WheelParticles';
+import { DamageFx } from '../rendering/DamageFx';
 import { TerrainRenderer } from '../world/TerrainRenderer';
 import { PropsRenderer } from '../world/PropsRenderer';
 import { Scenery } from '../world/Scenery';
@@ -27,17 +28,25 @@ import { log } from './logger';
 import { markStarted } from './errors';
 
 const $ = (id: string) => document.getElementById(id)!;
-const SPAWN = { vx: -4, vz: 4, vh: 0.4, px: 1, pz: -2, ph: -2.4 };
+const SPAWN = { px: 1, pz: -2, ph: -2.4 };
+/** Parking bays at base camp, one per catalog vehicle (in catalog order). */
+const BAYS = [{ x: -4, z: 4, h: 0.4 }, { x: -10.5, z: 2.5, h: 0.4 }];
+/** The open-sided shed at camp doubles as the workshop. */
+const WORKSHOP = { x: -18, z: 11, r: 9 };
+const KITS_PER_TRIP = 2;
 
 /** Owns the engine, scene and every game system, and runs the frame loop. */
 export class GameApp {
   engine!: AbstractEngine; backend!: Backend; scene!: Scene;
   terrain!: Terrain; physics: HavokWorld | null = null;
+  /** the vehicle being driven, or the last one driven */
   vehicle!: Vehicle; player!: Character;
+  fleet: Vehicle[] = []; fleetViews: VehicleView[] = []; private fleetFx: DamageFx[] = [];
+  repairKits = KITS_PER_TRIP;
   vView!: VehicleView; cView!: CharacterView; rig!: CameraRig; env!: Environment;
   terrainR!: TerrainRenderer; props!: PropsRenderer; grass!: GrassField; scenery!: Scenery; particles!: WheelParticles;
   hud!: Hud; input!: Input; audio = new EngineAudio(); net = new NetClient();
-  private remoteViews = new Map<string, { v: VehicleView; c: CharacterView; sim: Vehicle; ch: Character }>();
+  private remoteViews = new Map<string, { v: VehicleView; c: CharacterView; sim: Vehicle; ch: Character; vid: string }>();
   inVehicle = false; paused = false; started = false;
   private acc = 0; private refuel = 0; private playTime = 0;
   private fpsAcc = 0; private fpsFrames = 0; private fps = 60; private scaling = 1; private adaptTimer = 0;
@@ -69,19 +78,23 @@ export class GameApp {
     this.rig = new CameraRig(scene, this.terrain);
     this.env = new Environment(scene, this.rig.camera);
     const hk = assets.get<HavokModule | null>('Havok physics');
-    if (hk) { this.physics = new HavokWorld(scene, hk); this.physics.buildStatic(this.terrain); this.physics.addProxy('vehicle', new Vector3(1.9, 1.3, 4.6)); this.physics.addProxy('player', new Vector3(0.6, 1.8, 0.6)); }
+    if (hk) { this.physics = new HavokWorld(scene, hk); this.physics.buildStatic(this.terrain); VEHICLES.forEach((sp, i) => this.physics!.addProxy(`vehicle-${i}`, new Vector3(sp.halfExtents[0] * 2, sp.halfExtents[1] * 2 + 0.1, sp.halfExtents[2] * 2))); this.physics.addProxy('player', new Vector3(0.6, 1.8, 0.6)); }
     this.terrainR = new TerrainRenderer(scene, this.terrain, assets.get('Terrain textures'), assets.get('Terrain materials'));
     onProgress(0.85, 'Planting trees');
     await tick();
     this.props = new PropsRenderer(scene, this.terrain);
     this.grass = new GrassField(scene, this.terrain);
     this.scenery = new Scenery(scene, this.terrain, this.physics, assets.get<{ normal: RawImage }>('Terrain textures').normal);
-    this.vehicle = new Vehicle(RANGER_TX4, this.terrain);
+    for (const spec of VEHICLES) {
+      const sim = new Vehicle(spec, this.terrain), view = new VehicleView(scene, sim), fx = new DamageFx(scene, sim);
+      sim.onImpact = e => this.onImpact(sim, view, fx, e);
+      this.fleet.push(sim); this.fleetViews.push(view); this.fleetFx.push(fx);
+    }
+    this.vehicle = this.fleet[0]; this.vView = this.fleetViews[0];
     this.player = new Character(this.terrain);
-    this.vView = new VehicleView(scene, this.vehicle);
     this.cView = new CharacterView(scene);
     this.particles = new WheelParticles(scene, this.vehicle);
-    for (const m of [...this.props.casters, ...this.scenery.casters, ...this.vView.meshes, ...this.cView.meshes]) this.env.addShadowCaster(m);
+    for (const m of [...this.props.casters, ...this.scenery.casters, ...this.fleetViews.flatMap(v => v.meshes), ...this.cView.meshes]) this.env.addShadowCaster(m);
     this.applyGraphics();
     this.input = new Input(this.canvas);
     this.hud = new Hud(this.terrain);
@@ -100,22 +113,56 @@ export class GameApp {
 
   newGame(fromSave: boolean) {
     const s = fromSave ? SaveGame.read() : null;
+    this.fleet.forEach((v, i) => {
+      const bay = BAYS[i % BAYS.length];
+      v.condition = { ...v.condition }; repairFull(v.condition); v.engineTemp = 85; v.overheated = false;
+      v.fuel = v.spec.fuelCapacity; v.automatic = true; v.diffLock = false; v.driveMode = '4H'; v.drivingMode = 'normal';
+      v.reset(bay.x, bay.z, bay.h);
+      this.fleetViews[i].undent();
+    });
+    this.repairKits = KITS_PER_TRIP;
+    let active = this.fleet[0];
     if (s) {
-      this.vehicle.reset(s.vehicle.x, s.vehicle.z, s.vehicle.heading);
-      this.vehicle.fuel = s.vehicle.fuel; this.vehicle.driveMode = s.vehicle.driveMode; this.vehicle.automatic = s.vehicle.automatic; this.vehicle.diffLock = s.vehicle.diffLock;
+      const saved = s.vehicles ?? [{ ...s.vehicle, id: s.vehicle.id ?? this.fleet[0].spec.id }];
+      for (const sv of saved) { const v = this.fleet.find(f => f.spec.id === (sv.id ?? this.fleet[0].spec.id)); if (v) SaveGame.apply(v, sv); }
+      active = this.fleet.find(f => f.spec.id === s.activeVehicle) ?? active;
+      if (typeof s.repairKits === 'number') this.repairKits = Math.max(0, Math.min(KITS_PER_TRIP, Math.floor(s.repairKits)));
       this.player.place(s.player.x, s.player.z); this.player.heading = s.player.heading; this.playTime = s.playTimeSec;
     } else {
-      this.vehicle.fuel = this.vehicle.spec.fuelCapacity;
-      this.vehicle.reset(SPAWN.vx, SPAWN.vz, SPAWN.vh);
       this.player.place(SPAWN.px, SPAWN.pz); this.player.heading = SPAWN.ph; this.playTime = 0;
     }
-    for (let i = 0; i < 480; i++) this.vehicle.step(1 / PHYSICS_HZ, { throttle: 0, brake: 0, steer: 0, handbrake: 1 });
+    this.setActive(active);
+    for (const v of this.fleet) for (let i = 0; i < 480; i++) v.step(1 / PHYSICS_HZ, { throttle: 0, brake: 0, steer: 0, handbrake: 1 });
     this.inVehicle = false; this.cView.setVisible(true); this.rig.mode = 'chase';
     if (s?.inVehicle) this.enterVehicle();
     this.rig.yaw = this.player.heading + Math.PI;
   }
 
-  save() { const ok = SaveGame.write(SaveGame.capture(this.vehicle, this.player, this.inVehicle, this.playTime)); this.hud.toast(ok ? 'Game saved' : 'Could not save (browser storage blocked)'); }
+  private setActive(v: Vehicle) {
+    const i = this.fleet.indexOf(v);
+    this.vehicle = v; this.vView = this.fleetViews[i]; this.particles.v = v;
+  }
+
+  /** Tow the current vehicle back to its camp bay (keeps fuel and damage; the workshop is there). */
+  returnToCamp() {
+    const wasIn = this.inVehicle, v = this.vehicle, bay = BAYS[this.fleet.indexOf(v) % BAYS.length];
+    v.reset(bay.x, bay.z, bay.h);
+    for (let i = 0; i < 240; i++) v.step(1 / PHYSICS_HZ, { throttle: 0, brake: 0, steer: 0, handbrake: 1 });
+    this.player.place(bay.x + 2.2, bay.z - 1);
+    this.inVehicle = false; this.cView.setVisible(true);
+    if (wasIn) this.enterVehicle();
+  }
+
+  private onImpact(v: Vehicle, view: VehicleView, fx: DamageFx, e: ImpactEvent) {
+    view.dent(e);
+    if (e.part !== 'suspension') fx.impact(e.point, e.severity);
+    if (v !== this.vehicle || !this.inVehicle || !this.hud) return;
+    const c = v.condition;
+    if (e.part === 'suspension') { if (e.wheel >= 0 && c.tyres[e.wheel] >= 1) this.hud.toast('Puncture!'); else if (e.severity > 0.3) this.hud.toast('Hard landing: suspension damaged'); }
+    else if (e.severity > 0.25) this.hud.toast(e.part === 'front' && c.cooling > 0.3 ? 'Heavy front impact: radiator damaged' : `Heavy impact (${e.part})`);
+  }
+
+  save() { const ok = SaveGame.write(SaveGame.capture(this.fleet, this.vehicle, this.player, this.inVehicle, this.playTime, this.repairKits)); this.hud.toast(ok ? 'Game saved' : 'Could not save (browser storage blocked)'); }
 
   start() { this.started = true; markStarted(); this.audio.start(); this.canvas.requestPointerLock?.(); }
 
@@ -129,14 +176,24 @@ export class GameApp {
   }
 
   // ---------------- gameplay ----------------
-  private driverDoor() { return new Vec3(1.4, 0, 0.2).applyQuaternion(this.vehicle.body.quat).add(this.vehicle.body.pos); }
-  private canEnter() { const d = this.driverDoor(); return Math.hypot(this.player.pos.x - d.x, this.player.pos.z - d.z) < 2.6 || this.player.pos.distanceTo(this.vehicle.body.pos) < 3.2; }
-  enterVehicle() {
+  private driverDoor(v: Vehicle) { return new Vec3(v.spec.halfExtents[0] + 0.45, 0, 0.2).applyQuaternion(v.body.quat).add(v.body.pos); }
+  /** The vehicle the player is standing close enough to drive, if any (nearest wins). */
+  private enterable(): Vehicle | null {
+    let best: Vehicle | null = null, bd = 1e9;
+    for (const v of this.fleet) {
+      const d = this.driverDoor(v), dd = Math.hypot(this.player.pos.x - d.x, this.player.pos.z - d.z), dc = this.player.pos.distanceTo(v.body.pos);
+      if ((dd < 2.6 || dc < v.spec.halfExtents[2] + 0.9) && Math.min(dd, dc) < bd) { best = v; bd = Math.min(dd, dc); }
+    }
+    return best;
+  }
+  enterVehicle(target?: Vehicle) {
+    if (target) this.setActive(target);
+    const v = this.vehicle;
     this.inVehicle = true; this.cView.setVisible(false);
-    this.rig.yaw = this.vehicle.body.quat.yaw() + Math.PI;
+    this.rig.yaw = v.body.quat.yaw() + Math.PI;
     if (this.rig.mode === 'free') this.rig.mode = 'chase';
-    if (!this.vehicle.engineOn && this.vehicle.fuel > 0 && !this.vehicle.flooded) this.vehicle.engineOn = true;
-    this.hud.toast(`${this.vehicle.spec.name} · ${this.vehicle.driveMode}`);
+    if (!v.engineOn && v.canStart()) v.engineOn = true;
+    this.hud.toast(`${v.spec.name} · ${DRIVING_MODE_PROFILES[v.drivingMode].label} · ${v.driveMode}`);
   }
   exitVehicle() {
     const v = this.vehicle;
@@ -177,44 +234,66 @@ export class GameApp {
         if (!v.automatic && (inp.wasPressed('KeyZ') || inp.padPressed.has(4))) v.shiftDown();
         if (inp.wasPressed('KeyN')) this.vView.setHeadlights(!this.vView.headlightsOn);
         if (inp.wasPressed('KeyR')) { v.recover(); this.hud.toast('Vehicle recovered'); }
+        if (inp.wasPressed('KeyC') || inp.padPressed.has(2)) {
+          v.setDrivingMode(nextDrivingMode(v.drivingMode));
+          const m = DRIVING_MODE_PROFILES[v.drivingMode];
+          this.hud.toast(`${m.label} mode · ${v.driveMode}${v.diffLock ? ' · lockers' : ''}: ${m.description}`);
+        }
+        if (inp.wasPressed('KeyK')) {
+          if (this.repairKits <= 0) this.hud.toast('No repair kits left: the workshop at camp restocks them');
+          else if (v.speedKmh > 2) this.hud.toast('Stop to use a repair kit');
+          else { repairWithKit(v.condition); this.repairKits--; if (!v.engineOn && v.canStart()) v.engineOn = true; this.hud.toast(`Field repair done (${this.repairKits} kit${this.repairKits === 1 ? '' : 's'} left)`); }
+        }
         const nearPump = Math.hypot(v.body.pos.x - T.fuelPump.x, v.body.pos.z - T.fuelPump.z) < 6;
-        if (nearPump && inp.isDown('KeyF') && v.speedKmh < 3) { v.fuel = Math.min(v.spec.fuelCapacity, v.fuel + 12 * dt); this.refuel = 0.3; if (!v.engineOn && !v.flooded) v.engineOn = true; }
+        const atWorkshop = Math.hypot(v.body.pos.x - WORKSHOP.x, v.body.pos.z - WORKSHOP.z) < WORKSHOP.r;
+        if (nearPump && inp.isDown('KeyF') && v.speedKmh < 3) { v.fuel = Math.min(v.spec.fuelCapacity, v.fuel + 12 * dt); this.refuel = 0.3; if (!v.engineOn && v.canStart()) v.engineOn = true; }
+        if (atWorkshop && inp.wasPressed('KeyF') && v.speedKmh < 3) {
+          repairFull(v.condition); v.engineTemp = Math.min(v.engineTemp, 90); v.overheated = false; this.vView.undent(); this.repairKits = KITS_PER_TRIP;
+          if (!v.engineOn && v.canStart()) v.engineOn = true;
+          this.hud.toast(`Workshop: ${v.spec.name} fully repaired, repair kits restocked`);
+        }
         if (this.refuel > 0) this.refuel -= dt;
+        const dmg = v.condition;
         this.hud.prompt(nearPump ? (this.refuel > 0 ? `Refuelling… ${Math.round(v.fuel)} L` : 'Hold F to refuel') :
+          atWorkshop && (dmg.engine + dmg.cooling + dmg.tyres.reduce((a, b) => a + b, 0) + dmg.suspension.reduce((a, b) => a + b, 0) + Object.values(dmg.body).reduce((a, b) => a + b, 0)) > 0 ? 'Workshop: press F to repair' :
           v.flooded ? 'Engine flooded: press R to recover' : v.fuel <= 0 ? 'Out of fuel: pause menu → Return to base camp' :
+          dmg.engine >= 1 ? 'Engine destroyed: pause menu → Return to base camp for the workshop' :
+          v.overheated ? `Engine overheated (${Math.round(v.engineTemp)} °C): let it cool, then it restarts${this.repairKits > 0 && dmg.cooling > 0.3 ? ' · K: patch the radiator' : ''}` :
           v.upsideDownTimer > 1.5 ? 'Vehicle stuck: press R to recover' : null);
         if (enter) this.exitVehicle();
         const ctl = { throttle: inp.isDown('KeyW') || inp.isDown('ArrowUp') ? 1 : 0, brake: inp.isDown('KeyS') || inp.isDown('ArrowDown') ? 1 : 0, steer: inp.axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']), handbrake: inp.isDown('Space') ? 1 : 0 };
         if (gp) { ctl.throttle = Math.max(ctl.throttle, inp.padButton(7)); ctl.brake = Math.max(ctl.brake, inp.padButton(6)); if (inp.padAxis(0)) ctl.steer = inp.padAxis(0); ctl.handbrake = Math.max(ctl.handbrake, inp.padButton(0)); }
         while (this.acc >= fixed && steps < 14) { v.step(fixed, ctl); this.acc -= fixed; steps++; }
         this.player.pos.copy(v.body.pos);
+        this.stepParked(steps, v);
       } else {
-        while (this.acc >= fixed && steps < 14) { v.step(fixed, { throttle: 0, brake: 0, steer: 0, handbrake: 1 }); this.acc -= fixed; steps++; }
+        while (this.acc >= fixed && steps < 14) { this.acc -= fixed; steps++; }
+        this.stepParked(steps, null);
         const free = this.rig.mode === 'free';
         const fwd = free ? 0 : inp.axis(['KeyS', 'ArrowDown'], ['KeyW', 'ArrowUp']) || -inp.padAxis(1);
         const right = free ? 0 : inp.axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']) || inp.padAxis(0);
         this.player.update(dt, { forward: fwd, right, sprint: inp.isDown('ShiftLeft') || inp.isDown('ShiftRight') || inp.padButton(10) > 0.5, jump: !free && (inp.wasPressed('Space') || inp.padPressed.has(0)), crouch: inp.isDown('KeyC') || inp.padButton(1) > 0.5, camYaw: this.rig.yaw + Math.PI },
-          [{ cx: v.body.pos.x, cz: v.body.pos.z, hx: 0.95, hz: 2.35, yaw: v.body.quat.yaw(), top: v.body.pos.y + 1.2 }]);
+          this.fleet.map(f => ({ cx: f.body.pos.x, cz: f.body.pos.z, hx: f.spec.halfExtents[0], hz: f.spec.halfExtents[2] + 0.05, yaw: f.body.quat.yaw(), top: f.body.pos.y + f.spec.hullOffsetY + f.spec.halfExtents[1] })));
         if (this.rig.mode === 'first-person') this.player.heading = this.rig.yaw + Math.PI;
-        const ce = this.canEnter();
-        this.hud.prompt(ce ? `Press E to drive the ${v.spec.name}` : null);
-        if (enter && ce) this.enterVehicle();
+        const ce = this.enterable();
+        this.hud.prompt(ce ? `Press E to drive the ${ce.spec.name}` : null);
+        if (enter && ce) this.enterVehicle(ce);
       }
       if (steps >= 14) this.acc = 0;
       // kinematic proxies so Havok props react to the custom-simulated vehicle and player
-      this.physics?.moveProxy('vehicle', v.body.pos.x, v.body.pos.y + 0.25, v.body.pos.z, v.body.quat, dt);
+      this.fleet.forEach((f, i) => this.physics?.moveProxy(`vehicle-${i}`, f.body.pos.x, f.body.pos.y + f.spec.hullOffsetY, f.body.pos.z, f.body.quat, dt));
       const pq = new Quat().setFromAxisAngle({ x: 0, y: 1, z: 0 }, this.player.heading);
       if (!this.inVehicle) this.physics?.moveProxy('player', this.player.pos.x, this.player.pos.y + 0.9, this.player.pos.z, pq, dt);
       else this.physics?.moveProxy('player', 0, -500, 0, pq, dt);
       this.particles.update();
+      for (const fx of this.fleetFx) fx.update(dt, PRESETS[this.settings.graphics].particles);
       const slip = v.wheels.reduce((a, w) => a + (w.contact ? Math.abs(w.slipRatio) * 0.5 + Math.abs(w.slipAngle) : 0), 0) / 4;
       const water = v.wheels.some(w => w.inWater) ? Math.min(1, v.speedKmh / 20) : 0;
       this.audio.update(v.rpm, this.inVehicle ? v.lastInput.throttle + v.lastInput.brake * (v.gear < 0 ? 1 : 0) : 0, v.engineOn && this.inVehicle, this.inVehicle ? slip : 0, water, true);
       this.net.update(dt, this.localTransform());
     }
     // ---- presentation ----
-    this.vView.sync();
-    this.vView.setCockpit(this.inVehicle && this.rig.mode === 'first-person');
+    for (const view of this.fleetViews) { view.sync(); view.setCockpit(view === this.vView && this.inVehicle && this.rig.mode === 'first-person'); }
     this.cView.sync(this.player, dt);
     this.cView.setVisible(!this.inVehicle && this.rig.mode !== 'first-person');
     this.scenery.animate(performance.now());
@@ -227,6 +306,7 @@ export class GameApp {
     this.terrainR.update(cam); this.props.update(cam); this.grass.update(cam);
     this.env.follow(new Vector3(focus.x, focus.y, focus.z));
     if (this.started) {
+      this.hud.kits = this.repairKits;
       this.hud.update(dt, { px: focus.x, pz: focus.z, viewYaw: this.rig.viewYaw, inVehicle: this.inVehicle, v, vx: v.body.pos.x, vz: v.body.pos.z, vHeading: v.body.quat.yaw(), stamina: this.player.stamina, surface: T.surfaceAt(focus.x, focus.z) });
       const net = $('net');
       net.classList.toggle('hidden', this.net.status === 'offline');
@@ -236,19 +316,27 @@ export class GameApp {
     this.input.endFrame();
   }
 
+  /** Parked vehicles keep simulating (handbrake on) so they settle, roll on slopes and can be pushed. */
+  private stepParked(steps: number, driven: Vehicle | null) {
+    const fixed = 1 / PHYSICS_HZ;
+    for (const f of this.fleet) if (f !== driven) for (let k = 0; k < steps; k++) f.step(fixed, { throttle: 0, brake: 0, steer: 0, handbrake: 1 });
+  }
+
   private localTransform(): PlayerTransform {
     const v = this.vehicle, p = this.player;
-    if (this.inVehicle) { const b = v.body; return { mode: 'vehicle', x: b.pos.x, y: b.pos.y, z: b.pos.z, qx: b.quat.x, qy: b.quat.y, qz: b.quat.z, qw: b.quat.w, vx: b.vel.x, vy: b.vel.y, vz: b.vel.z, t: performance.now() }; }
+    if (this.inVehicle) { const b = v.body; return { mode: 'vehicle', vid: v.spec.id, x: b.pos.x, y: b.pos.y, z: b.pos.z, qx: b.quat.x, qy: b.quat.y, qz: b.quat.z, qw: b.quat.w, vx: b.vel.x, vy: b.vel.y, vz: b.vel.z, t: performance.now() }; }
     const q = new Quat().setFromAxisAngle({ x: 0, y: 1, z: 0 }, p.heading);
-    return { mode: 'foot', x: p.pos.x, y: p.pos.y, z: p.pos.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w, vx: p.vel.x, vy: p.vel.y, vz: p.vel.z, t: performance.now() };
+    return { mode: 'foot', vid: v.spec.id, x: p.pos.x, y: p.pos.y, z: p.pos.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w, vx: p.vel.x, vy: p.vel.y, vz: p.vel.z, t: performance.now() };
   }
 
   private syncRemotes(dt: number) {
     for (const [id, r] of this.net.remotes) {
       let view = this.remoteViews.get(id);
+      const spec = vehicleById(r.vid);
+      if (view && view.vid !== spec.id) { view.v.root.dispose(); view.c.root.dispose(); this.remoteViews.delete(id); view = undefined; }
       if (!view) {
-        const sim = new Vehicle(RANGER_TX4, this.terrain), ch = new Character(this.terrain);
-        view = { sim, ch, v: new VehicleView(this.scene, sim, Color3.FromHSV((id.charCodeAt(0) * 47) % 360, 0.6, 0.7)), c: new CharacterView(this.scene) };
+        const sim = new Vehicle(spec, this.terrain), ch = new Character(this.terrain);
+        view = { sim, ch, vid: spec.id, v: new VehicleView(this.scene, sim, Color3.FromHSV((id.charCodeAt(0) * 47) % 360, 0.6, 0.7)), c: new CharacterView(this.scene) };
         for (const w of sim.wheels) w.compression = 0.26;
         this.remoteViews.set(id, view);
       }
@@ -256,7 +344,7 @@ export class GameApp {
       if (!s) continue;
       const veh = s.mode === 'vehicle';
       view.v.root.setEnabled(true); view.c.setVisible(!veh);
-      if (veh) { view.sim.body.pos.set(s.x, s.y, s.z); view.sim.body.quat.set(s.qx, s.qy, s.qz, s.qw); const sp = Math.hypot(s.vx, s.vz); for (const w of view.sim.wheels) w.rotation += (sp / 0.42) * dt; }
+      if (veh) { view.sim.body.pos.set(s.x, s.y, s.z); view.sim.body.quat.set(s.qx, s.qy, s.qz, s.qw); const sp = Math.hypot(s.vx, s.vz); for (const w of view.sim.wheels) w.rotation += (sp / spec.wheelRadius) * dt; }
       else {
         view.ch.pos.set(s.x, s.y, s.z); view.ch.heading = new Quat(s.qx, s.qy, s.qz, s.qw).yaw(); view.ch.speed = Math.hypot(s.vx, s.vz); view.ch.animPhase += dt * view.ch.speed * 2.2; view.ch.grounded = Math.abs(s.vy) < 1;
         view.c.sync(view.ch, dt);

@@ -1,10 +1,10 @@
 import { Room, type Client } from '@colyseus/core';
 import { schema, t as ty, MapSchema } from '@colyseus/schema';
-import { Terrain, WORLD_SEED, LIMITS, MAX_PLAYERS_PER_ROOM, MESSAGE, isPlayerTransform, sanitizeChat, type PlayerTransform } from '@orl/shared';
+import { Terrain, vehicleById, WORLD_SEED, LIMITS, MAX_PLAYERS_PER_ROOM, MESSAGE, isPlayerTransform, sanitizeChat, type PlayerTransform } from '@orl/shared';
 import { validateMove, RateLimiter, type Accepted } from '../validation/movement';
 
 export const PlayerState = schema({
-  name: ty.string(), mode: ty.string(),
+  name: ty.string(), mode: ty.string(), vid: ty.string(),
   x: ty.number(), y: ty.number(), z: ty.number(),
   qx: ty.number(), qy: ty.number(), qz: ty.number(), qw: ty.number(),
   vx: ty.number(), vy: ty.number(), vz: ty.number(),
@@ -42,7 +42,7 @@ export class FreeRoamRoom extends Room {
     const name = (sanitizeChat(options?.name) ?? `Driver-${client.sessionId.slice(0, 4)}`).slice(0, 24);
     const p = new PlayerState();
     const sx = 0, sz = 0;
-    Object.assign(p, { name, mode: 'foot', x: sx, y: this.terrain.heightAt(sx, sz), z: sz, qx: 0, qy: 0, qz: 0, qw: 1, vx: 0, vy: 0, vz: 0, t: 0 });
+    Object.assign(p, { name, mode: 'foot', vid: 'ranger-tx4', x: sx, y: this.terrain.heightAt(sx, sz), z: sz, qx: 0, qy: 0, qz: 0, qw: 1, vx: 0, vy: 0, vz: 0, t: 0 });
     (this.state as { players: MapSchema<PlayerInstance> }).players.set(client.sessionId, p);
     this.sessions.set(client.sessionId, { accepted: null, limiter: new RateLimiter(Math.ceil(LIMITS.maxStateRateHz * 1.5)), chat: new RateLimiter(3), violations: 0 });
   }
@@ -69,7 +69,7 @@ export class FreeRoamRoom extends Room {
     s.accepted = { x: t.x, y: t.y, z: t.z, mode: t.mode, at: now };
     s.violations = Math.max(0, s.violations - 0.05);
     const p = (this.state as { players: MapSchema<PlayerInstance> }).players.get(client.sessionId);
-    if (p) Object.assign(p, { mode: t.mode, x: t.x, y: t.y, z: t.z, qx: t.qx, qy: t.qy, qz: t.qz, qw: t.qw, vx: t.vx, vy: t.vy, vz: t.vz, t: t.t });
+    if (p) Object.assign(p, { mode: t.mode, vid: vehicleById(t.vid).id, x: t.x, y: t.y, z: t.z, qx: t.qx, qy: t.qy, qz: t.qz, qw: t.qw, vx: t.vx, vy: t.vy, vz: t.vz, t: t.t });
   }
 
   private flag(client: Client, s: Session, reason: string) {

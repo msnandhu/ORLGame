@@ -18,6 +18,8 @@ export interface PlayerTransform {
   x: number; y: number; z: number;
   qx: number; qy: number; qz: number; qw: number;
   vx: number; vy: number; vz: number;
+  /** which catalog vehicle the player drives (so others see the right model) */
+  vid?: string;
   /** client sim time in ms when the snapshot was taken */
   t: number;
 }

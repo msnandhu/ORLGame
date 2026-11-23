@@ -16,7 +16,7 @@ const SURF: Record<number, [number, number, number]> = {
 export class WheelParticles {
   private systems: ParticleSystem[] = [];
   budget = 1;
-  constructor(scene: Scene, private v: Vehicle) {
+  constructor(scene: Scene, public v: Vehicle) {
     const d = softDot();
     const tex = new RawTexture(d.data, d.width, d.height, Constants.TEXTUREFORMAT_RGBA, scene, false, false, Texture.BILINEAR_SAMPLINGMODE);
     for (let i = 0; i < 4; i++) {

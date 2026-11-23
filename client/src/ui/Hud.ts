@@ -1,4 +1,4 @@
-import { Terrain, Surface, SURFACE_NAMES, type Vehicle } from '@orl/shared';
+import { Terrain, Surface, SURFACE_NAMES, DRIVING_MODE_PROFILES, isPunctured, type Vehicle } from '@orl/shared';
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -9,6 +9,10 @@ export class Hud {
   private tacho = ($('tacho') as HTMLCanvasElement).getContext('2d')!;
   private big = ($('bigmap-canvas') as HTMLCanvasElement).getContext('2d')!;
   private toastTimer = 0;
+  private dmg = ($('damage-canvas') as HTMLCanvasElement).getContext('2d')!;
+  private dmgTimer = 0;
+  /** repair kits carried (set by the game) */
+  kits = 0;
   private compassStrip = $('compass-strip');
 
   constructor(private terrain: Terrain) {
@@ -105,7 +109,7 @@ export class Hud {
   private drawVehicle(v: Vehicle) {
     const ctx = this.tacho, W = 230, cx = W / 2, cy = W / 2, r = 100;
     ctx.clearRect(0, 0, W, W);
-    const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25, maxRpm = 5000;
+    const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25, maxRpm = Math.ceil((v.spec.redlineRpm + 500) / 1000) * 1000;
     ctx.lineWidth = 10; ctx.lineCap = 'butt';
     ctx.strokeStyle = 'rgba(14,17,20,0.75)'; ctx.beginPath(); ctx.arc(cx, cy, r, a0, a1); ctx.stroke();
     const red = a0 + (a1 - a0) * (v.spec.redlineRpm / maxRpm);
@@ -114,7 +118,8 @@ export class Hud {
     ctx.strokeStyle = v.rpm > v.spec.redlineRpm - 100 ? '#ff5a3c' : '#e0782a';
     ctx.beginPath(); ctx.arc(cx, cy, r, a0, a0 + (a1 - a0) * f); ctx.stroke();
     ctx.fillStyle = '#9aa3a0'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
-    for (let k = 0; k <= 5; k++) { const a = a0 + (a1 - a0) * (k / 5); ctx.fillText(String(k), cx + Math.cos(a) * (r - 20), cy + Math.sin(a) * (r - 20) + 4); }
+    const ticks = maxRpm / 1000;
+    for (let k = 0; k <= ticks; k++) { const a = a0 + (a1 - a0) * (k / ticks); ctx.fillText(String(k), cx + Math.cos(a) * (r - 20), cy + Math.sin(a) * (r - 20) + 4); }
     ctx.fillText('x1000 rpm', cx, cy + 62);
     $('speed-val').textContent = String(Math.round(v.speedKmh));
     $('gear').textContent = !v.engineOn ? '—' : v.gear < 0 ? 'R' : v.gear === 0 ? 'N' : String(v.gear);
@@ -123,6 +128,20 @@ export class Hud {
     $('ind-lock').classList.toggle('on', v.diffLock);
     $('ind-hb').classList.toggle('on', v.lastInput.handbrake > 0.5);
     $('ind-flood').classList.toggle('on', v.flooded);
+    const mode = DRIVING_MODE_PROFILES[v.drivingMode];
+    $('ind-mode').textContent = mode.label.toUpperCase();
+    $('ind-tc').textContent = mode.tcSlip === null && !mode.brakeTc ? 'TC OFF' : 'TC';
+    $('ind-tc').classList.toggle('on', v.tcActive);
+    $('ind-abs').textContent = mode.abs ? 'ABS' : 'ABS OFF';
+    $('ind-abs').classList.toggle('on', v.absActive);
+    $('ind-crawl').classList.toggle('on', v.crawlActive);
+    $('ind-hot').classList.toggle('on', v.engineTemp > 110 || v.overheated);
+    $('temp-val').textContent = String(Math.round(v.engineTemp));
+    const tf = $('temp-fill') as HTMLElement;
+    tf.style.width = `${Math.max(0, Math.min(1, (v.engineTemp - 40) / 90)) * 100}%`;
+    tf.style.background = v.engineTemp > 115 ? '#ff5a3c' : v.engineTemp > 104 ? '#e0a02a' : '#6fb3d9';
+    this.dmgTimer -= 1;
+    if (this.dmgTimer <= 0) { this.dmgTimer = 10; this.drawCondition(v); }
     ($('fuel-fill') as HTMLElement).style.width = `${(v.fuel / v.spec.fuelCapacity) * 100}%`;
     ($('fuel-fill') as HTMLElement).style.background = v.fuel / v.spec.fuelCapacity < 0.15 ? '#ff5a3c' : '';
     v.wheels.forEach((w, i) => {
@@ -131,5 +150,33 @@ export class Hud {
       const slip = Math.min(1, Math.abs(w.slipRatio) * 1.5 + Math.abs(w.slipAngle) * 2);
       el.style.background = !w.contact ? '#111' : `rgb(${Math.round(60 + slip * 195)},${Math.round(60 + load * 150 * (1 - slip))},60)`;
     });
+  }
+
+  /** Top-down condition diagram: panels, wheels (tyre + suspension), engine and radiator. Green = fine, red = broken. */
+  private drawCondition(v: Vehicle) {
+    const ctx = this.dmg, c = v.condition, W = 96, H = 150;
+    const col = (d: number) => `rgb(${Math.round(90 + 165 * Math.min(1, d * 1.4))},${Math.round(200 - 160 * d)},${Math.round(90 - 50 * d)})`;
+    ctx.clearRect(0, 0, W, H);
+    const bx = 26, by = 14, bw = 44, bh = 122;
+    ctx.globalAlpha = 0.9;
+    // panels: front, rear, left, right, roof (centre), under shown as an outline
+    ctx.fillStyle = col(c.body.front); ctx.fillRect(bx, by, bw, 22);
+    ctx.fillStyle = col(c.body.rear); ctx.fillRect(bx, by + bh - 20, bw, 20);
+    ctx.fillStyle = col(c.body.left); ctx.fillRect(bx, by + 24, 8, bh - 46);   // vehicle's left is the screen's left (top view, nose up)
+    ctx.fillStyle = col(c.body.right); ctx.fillRect(bx + bw - 8, by + 24, 8, bh - 46);
+    ctx.fillStyle = col(c.body.roof); ctx.fillRect(bx + 10, by + 34, bw - 20, bh - 70);
+    ctx.strokeStyle = col(c.body.under); ctx.lineWidth = 2; ctx.strokeRect(bx - 1, by - 1, bw + 2, bh + 2);
+    // wheels: FL FR RL RR -> screen positions (nose up, so vehicle left = screen left)
+    const pos = [[bx - 16, by + 14], [bx + bw + 4, by + 14], [bx - 16, by + bh - 40], [bx + bw + 4, by + bh - 40]];
+    pos.forEach(([x, y], i) => {
+      ctx.fillStyle = isPunctured(c, i) ? '#ff3a2a' : col(c.tyres[i]); ctx.fillRect(x, y, 12, 26);
+      ctx.fillStyle = col(c.suspension[i]); ctx.fillRect(x + (i % 2 ? -4 : 12), y + 8, 4, 10);
+    });
+    // engine and radiator markers on the bonnet
+    ctx.globalAlpha = 1; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#111'; ctx.fillText('RAD', bx + bw / 2, by + 9); ctx.fillText('ENG', bx + bw / 2, by + 19);
+    ctx.fillStyle = col(c.cooling); ctx.fillRect(bx + 4, by + 1, 6, 9);
+    ctx.fillStyle = col(c.engine); ctx.fillRect(bx + 4, by + 12, 6, 9);
+    $('kits').textContent = `REPAIR KITS ${this.kits}`;
   }
 }

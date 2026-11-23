@@ -39,7 +39,7 @@ export class IslandRenderer {
   private frame = 0;
   private nextId = 1;
   private byId = new Map<number, Node>();
-  private treeTpl: { trunk: Mesh; pine: Mesh; leaf: Mesh; jungle: Mesh };
+  private treeTpl: { trunk: Mesh; pine: Mesh; leaf: Mesh; jungle: Mesh }[];
   /** distance (in node sizes) inside which a node splits */
   splitFactor = 2.3;
   treeDensity = 1;
@@ -63,20 +63,30 @@ export class IslandRenderer {
       log.warn('island', 'Workers unavailable; island terrain builds on the main thread', e);
       this.workers = [];
     }
-    // tree templates (low poly: the island's trees are seen from a vehicle, mostly at speed)
+    // tree templates: a fuller set for the nearest level, a light one for the next
     const mat = (name: string, c: Color3) => { const m = new PBRMaterial(name, scene); m.albedoColor = c; m.metallic = 0; m.roughness = 0.95; m.environmentIntensity = 0.3; return m; };
     const bark = mat('island-bark', new Color3(0.29, 0.21, 0.15)), leaves = mat('island-leaves', new Color3(1, 1, 1));
-    const trunk = MeshBuilder.CreateCylinder('it-trunk', { diameterTop: 1.1, diameterBottom: 2, height: 1, tessellation: 5 }, scene); trunk.bakeTransformIntoVertices(Matrix.Translation(0, 0.5, 0));
-    const pine = Mesh.MergeMeshes([0, 1, 2].map(k => {
-      const c = MeshBuilder.CreateCylinder('pc', { diameterTop: 0.05, diameterBottom: 2 * (1 - k * 0.25), height: 0.45, tessellation: 8 }, scene);
-      c.position.y = 0.25 + k * 0.25; c.rotation.y = k; return c;
+    const blobs = (name: string, parts: number[][], sub: number) => Mesh.MergeMeshes(parts.map(([x, y, z, r, sy = 1]) => {
+      const b = MeshBuilder.CreateIcoSphere(name, { radius: r, subdivisions: sub, flat: true }, scene); b.position.set(x, y, z); b.scaling.y = sy; return b;
     }), true)!;
-    const leaf = MeshBuilder.CreateIcoSphere('it-leaf', { radius: 1, subdivisions: 1, flat: true }, scene); leaf.bakeTransformIntoVertices(Matrix.Translation(0, 0.62, 0));
-    const jungle = Mesh.MergeMeshes([[0, 0.75, 0, 0.8], [0.5, 0.6, 0.2, 0.55], [-0.45, 0.62, -0.2, 0.55]].map(([x, y, z, r]) => {
-      const b = MeshBuilder.CreateIcoSphere('jb', { radius: r, subdivisions: 1, flat: true }, scene); b.position.set(x, y, z); return b;
-    }), true)!;
-    for (const [m, mm] of [[trunk, bark], [pine, leaves], [leaf, leaves], [jungle, leaves]] as const) { m.material = mm; m.setEnabled(false); m.isPickable = false; }
-    this.treeTpl = { trunk, pine, leaf, jungle };
+    const make = (hi: boolean) => {
+      const trunk = MeshBuilder.CreateCylinder('it-trunk', { diameterTop: 1.1, diameterBottom: 2, height: 1, tessellation: hi ? 7 : 4 }, scene); trunk.bakeTransformIntoVertices(Matrix.Translation(0, 0.5, 0));
+      const tiers = hi ? 5 : 3;
+      const pine = Mesh.MergeMeshes(Array.from({ length: tiers }, (_, k) => {
+        const f = k / tiers, c = MeshBuilder.CreateCylinder('pc', { diameterTop: 0.04, diameterBottom: 2.1 * (1 - f * 0.8), height: hi ? 0.34 - f * 0.08 : 0.45, tessellation: hi ? 10 : 6 }, scene);
+        c.position.y = 0.2 + f * 0.82; c.rotation.y = k * 0.9; return c;
+      }), true)!;
+      const leaf = hi
+        ? blobs('lb', [[0, 0.62, 0, 0.78], [0.45, 0.5, 0.2, 0.55], [-0.42, 0.55, -0.15, 0.58], [0.1, 0.5, -0.45, 0.5], [-0.1, 0.95, 0.12, 0.52]], 1)
+        : blobs('lb', [[0, 0.62, 0, 1]], 1);
+      // jungle: a tall bare stem under a broad, flat-topped crown
+      const jungle = hi
+        ? blobs('jb', [[0, 0.82, 0, 0.75, 0.55], [0.55, 0.74, 0.2, 0.55, 0.5], [-0.5, 0.76, -0.25, 0.55, 0.5], [0.1, 0.72, -0.55, 0.5, 0.5], [-0.15, 0.7, 0.5, 0.5, 0.5]], 1)
+        : blobs('jb', [[0, 0.8, 0, 0.9, 0.55]], 1);
+      for (const [m, mm] of [[trunk, bark], [pine, leaves], [leaf, leaves], [jungle, leaves]] as const) { m.material = mm; m.setEnabled(false); m.isPickable = false; }
+      return { trunk, pine, leaf, jungle };
+    };
+    this.treeTpl = [make(true), make(false)];
     for (let iz = -1; iz <= 0; iz++) for (let ix = -1; ix <= 0; ix++) this.node(ROOT_LEVEL, ix, iz);
   }
 
@@ -202,15 +212,15 @@ export class IslandRenderer {
       const hsh = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1;
       if (hsh > keep) continue;
       const yaw = hsh * 37;
-      put('trunk', r, h * 0.45, 0, x, y - 0.3, z, Color3.White());
+      put('trunk', r, h * (kind === 2 ? 0.75 : 0.45), 0, x, y - 0.3, z, Color3.White());
       if (kind === 0) put('pine', h * 0.28, h * 1.05, yaw, x, y + h * 0.12, z, Color3.FromHSV(100 + hsh * 20, 0.45 + hsh * 0.1, 0.22 + hsh * 0.08));
       else if (kind === 1) put('leaf', h * 0.33, h * 0.42, yaw, x, y + h * 0.4, z, Color3.FromHSV(78 + hsh * 26, 0.5 + hsh * 0.12, 0.3 + hsh * 0.08));
-      else put('jungle', h * 0.36, h * 0.38, yaw, x, y + h * 0.5, z, Color3.FromHSV(105 + hsh * 25, 0.62, 0.2 + hsh * 0.09));
+      else put('jungle', h * 0.42, h * 0.4, yaw, x, y + h * 0.45, z, Color3.FromHSV(105 + hsh * 25, 0.62, 0.2 + hsh * 0.09));
     }
     const out: Mesh[] = [];
     for (const [k, b] of Object.entries(buckets)) {
       if (!b.m.length) continue;
-      const tpl = this.treeTpl[k as keyof IslandRenderer['treeTpl']];
+      const tpl = this.treeTpl[n.level === 0 ? 0 : 1][k as 'trunk'];
       const m = tpl.clone(`${k}-${n.key}`, null, true, false) as Mesh;
       m.makeGeometryUnique();
       m.thinInstanceSetBuffer('matrix', new Float32Array(b.m), 16, true);

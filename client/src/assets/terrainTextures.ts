@@ -106,11 +106,11 @@ function dirt(S: number): RawImage {
 }
 
 function rock(S: number): RawImage {
-  const base = fbm(S, 31, 4, 6), fine = fbm(S, 32, 32, 3), cells = worley(S, 33, 7), lich = fbm(S, 34, 8, 4);
+  const base = fbm(S, 31, 4, 6), fine = fbm(S, 32, 32, 3), cells = worley(S, 33, 11), lich = fbm(S, 34, 8, 4);
   return pack(S, (k, _x, y) => {
     const m = base[k], strata = Math.sin((y / S) * Math.PI * 2 * 9 + m * 6) * 0.5 + 0.5;
     let v = 0.4 + (m - 0.5) * 0.35 + (strata - 0.5) * 0.06 + (fine[k] - 0.5) * 0.14 + (cells.id[k] - 0.5) * 0.08;
-    const crack = ss(0.05, 0.0, cells.edge[k]); v *= 1 - crack * 0.6;
+    const crack = ss(0.04, 0.0, cells.edge[k]); v *= 1 - crack * 0.32;
     let rr = v * 1.04, gg = v, bb = v * 0.95;
     const l = ss(0.62, 0.72, lich[k]) * (1 - crack); // lichen patches
     rr = rr * (1 - l) + 0.42 * l; gg = gg * (1 - l) + 0.44 * l; bb = bb * (1 - l) + 0.22 * l;

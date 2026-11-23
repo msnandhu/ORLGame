@@ -269,6 +269,17 @@ export class OuterWorld {
   }
 
   /**
+   * Fraction of the 8 m tree grid that carries a tree at a point (before roads, water, slopes and places thin it):
+   * dense jungle, patchy pine woods in the hills, copses on the plains, a few pines below the snow line. Also sets
+   * this.rw to the region weights there. The renderer uses it to colour distant forest as canopy.
+   */
+  treeDensity(x: number, z: number, y: number): number {
+    this.island.regionBlend(x, z, this.rw);
+    const w = this.rw, cop = smoothstep(0.45, 0.7, this.noise.noise(x / 300 + 7, z / 300));
+    return w.forest * 0.62 + w.hill * (0.08 + 0.4 * smoothstep(-0.1, 0.25, this.noise.noise(x / 700 + 9, z / 700))) + w.plain * (0.012 + cop * 0.5) + w.snow * 0.07 * (1 - smoothstep(1500, 2000, y));
+  }
+
+  /**
    * Trees: a jittered 8 m grid thinned by land cover (dense jungle, pine hills, copses on the plains). `hs` gives
    * the ground height at a 2 m sample of the tile (the tile itself for physics; the renderer's coarser LOD grids
    * pass an interpolated sampler, which gives the same trees at very nearly the same heights).
@@ -280,10 +291,8 @@ export class OuterWorld {
       const gx = ti * 16 + gi, gz = tj * 16 + gj;
       const x = x0 + gi * 8 + hash(gx, gz, 1) * 8, z = z0 + gj * 8 + hash(gx, gz, 2) * 8;
       if (this.inCore(x, z)) continue;
-      this.island.regionBlend(x, z, this.rw);
-      const w = this.rw, cop = smoothstep(0.45, 0.7, this.noise.noise(x / 300 + 7, z / 300));
       const i = Math.min(S - 1, Math.round((x - x0) / C)), j = Math.min(S - 1, Math.round((z - z0) / C)), y = hs(i, j);
-      let dens = w.forest * 0.62 + w.hill * (0.08 + 0.4 * smoothstep(-0.1, 0.25, this.noise.noise(x / 700 + 9, z / 700))) + w.plain * (0.012 + cop * 0.5) + w.snow * 0.07 * (1 - smoothstep(1500, 2000, y));
+      const dens = this.treeDensity(x, z, y), w = this.rw;
       if (y > 2300 || y < 2.5) continue;
       if (hash(gx, gz, 3) > dens) continue;
       const r = this.roadAt(x, z);

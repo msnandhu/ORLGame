@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.1: Island graphics pass
+
+- **Forests read as forests from afar.** Beyond the range where real trees are drawn, woodland is coloured as canopy (dark jungle green in the Deep Forest, blue-green pine in the hills and snow, mixed woods on the plains), so distant forest no longer looks like bare grass.
+- **Farmland.** The Plain Region is a patchwork of fields (wheat, pasture, ploughed soil, meadow) on a slightly rotated grid with darker hedgerows along the edges. It fades out near the valley so the valley's own look is unchanged. Fields are colour only: the ground underneath still drives as grass.
+- **Better island trees.** The nearest trees have five-tier pines, fuller broadleaf crowns and tall-stemmed jungle trees with broad, flat crowns. A lighter set is used one level further out.
+- **Snow, sand and rock.** Snow now meets grass in broad, natural drifts instead of a cell pattern. Beach sand is pale and warm instead of orange. Rock has finer, softer cracks, so cliffs no longer show a large cell pattern.
+
 ## 0.8.0: The whole island is drivable (stage 2 of the four-region world)
 
 - **Drive anywhere on the 1,170 km² island.** Leave the valley by any of its four exits (north, west and east onto the island highways, south onto the coast road) and keep going: to the snowfields and Glacier Peak in the north, the Deep Forest in the west, the Hill Region in the east and the farmland and beaches of the Plain Region in the south.

@@ -194,9 +194,22 @@ export class GameApp {
     }
     $('backend-info').textContent = `Renderer: ${this.backend}${this.physics ? ' · Havok physics' : ' · physics props off'} · ${this.terrain.size} m region`;
     log.info('app', `World ready: ${this.backend}, ${scene.meshes.length} meshes`);
+    // a WebGPU device that is lost (driver reset, unsupported feature) leaves a black screen: restart on WebGL2
+    if (backend === 'WebGPU') engine.onContextLostObservable.add(() => this.fallbackToWebGL2('the WebGPU device was lost'));
     engine.runRenderLoop(() => this.frame());
     addEventListener('resize', () => engine.resize());
     (window as unknown as Record<string, unknown>).__game = this;
+  }
+
+  /** WebGPU failed while running: remember WebGL2 and reload once (the player keeps their save). */
+  private fallbackToWebGL2(why: string, err?: unknown) {
+    log.warn('engine', `Switching to WebGL2: ${why}`, err);
+    let tried = false;
+    try { tried = sessionStorage.getItem('orl.webgl2-retry') === '1'; sessionStorage.setItem('orl.webgl2-retry', '1'); } catch { /* storage blocked */ }
+    this.settings.preferWebGPU = false; saveSettings(this.settings);
+    if (tried) return;
+    if (this.started) { try { SaveGame.write(SaveGame.capture(this.fleet, this.vehicle, this.player, this.inVehicle, this.playTime, this.repairKits)); } catch { /* best effort */ } }
+    location.reload();
   }
 
   newGame(fromSave: boolean) {
@@ -721,7 +734,10 @@ export class GameApp {
     // the map opened from the main menu still needs drawing
     if (!this.started && this.worldMap?.isOpen) this.worldMap.update(dt, this.mapState(this.player.pos.x, this.player.pos.z));
     try { this.scene.render(); }
-    catch (e) { if (!this.env.dropSsao()) throw e; this.hud?.toast('Ambient occlusion is not supported here and was turned off'); }
+    catch (e) {
+      if (this.backend === 'WebGPU') { this.fallbackToWebGL2('a frame failed to render on WebGPU', e); return; }
+      if (!this.env.dropSsao()) throw e; this.hud?.toast('Ambient occlusion is not supported here and was turned off');
+    }
     this.input.endFrame();
   }
 

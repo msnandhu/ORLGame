@@ -96,7 +96,7 @@ export class Environment {
       pl.imageProcessing.vignetteEnabled = true; pl.imageProcessing.vignetteWeight = 1.2;
       this.pipeline = pl;
       const engine = this.scene.getEngine() as unknown as { createMultipleRenderTarget?: unknown };
-      if (p.ssao && SSAO2RenderingPipeline.IsSupported && typeof engine.createMultipleRenderTarget === 'function' && !Environment.ssaoBroken) {
+      if (p.ssao && SSAO2RenderingPipeline.IsSupported && typeof engine.createMultipleRenderTarget === 'function' && !Environment.ssaoBroken && !this.scene.getEngine().isWebGPU) {
         this.ssao = new SSAO2RenderingPipeline('ssao', this.scene, { ssaoRatio: 0.5, blurRatio: 0.5 }, [this.camera]);
         this.ssao.radius = 1.5; this.ssao.totalStrength = 1.1; this.ssao.samples = 16; this.ssao.maxZ = 250;
       }

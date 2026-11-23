@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.2: Black screen on WebGPU
+
+- On some GPUs the WebGPU renderer drew nothing but the HUD. WebGL2 is the renderer again for everyone (the saved WebGPU choice is cleared once), and WebGPU is labelled experimental in Settings.
+- If WebGPU is chosen and its device is lost or a frame fails to render, the game saves and restarts once on WebGL2 instead of showing a black screen. Ambient occlusion stays off on WebGPU.
+
 ## 0.10.1: Driving physics pass and fixes
 
 - **Start-up crash fixed.** On Ultra with WebGPU the game stopped at "The game could not start" (`createMultipleRenderTarget is not a function`): ambient occlusion needed a Babylon engine module that was never loaded. Both renderers now load it, and if ambient occlusion still fails on a device it switches itself off and the game carries on.

@@ -1,5 +1,5 @@
 /** Values both client and server must agree on. */
-export const GAME_VERSION = '0.10.1';
+export const GAME_VERSION = '0.10.2';
 export const WORLD_SEED = 20261123;
 export const PHYSICS_HZ = 240;
 export const NETWORK_TICK_HZ = 20;

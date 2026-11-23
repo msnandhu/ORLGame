@@ -5,8 +5,11 @@ export const DEFAULT_SETTINGS: Settings = {
   graphics: 'high', adaptiveQuality: true, mouseSensitivity: 1, invertY: false, volume: 0.6, showFps: false, preferWebGPU: false,
 };
 const KEY = 'orl.settings.v2';
-/** Bumped when a saved setting must be reset. Rev 3: the old "Prefer WebGPU = on" default is cleared (WebGL2 is the default renderer). */
-const REV = 3;
+/**
+ * Bumped when a saved setting must be reset. Rev 3: the old "Prefer WebGPU = on" default is cleared (WebGL2 is the
+ * default renderer). Rev 4: cleared again after WebGPU drew a black screen on some GPUs (v0.10.2).
+ */
+const REV = 4;
 
 /** Settings persisted per browser (localStorage), tolerant of blocked storage. */
 export function loadSettings(): Settings {

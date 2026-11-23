@@ -1,10 +1,15 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 
-export default defineConfig({
+// `vite build --mode single` makes one self-contained bundle (no code splitting, wasm inlined) for hosts that serve a single HTML file
+export default defineConfig(({ mode }) => ({
   base: './',
   resolve: { alias: { '@orl/shared': fileURLToPath(new URL('../shared/src/index.ts', import.meta.url)) } },
   optimizeDeps: { exclude: ['@babylonjs/havok'] },
   server: { port: 5173 },
-  build: { outDir: 'dist', target: 'es2022', chunkSizeWarningLimit: 6000, sourcemap: false },
-});
+  build: {
+    outDir: mode === 'single' ? 'dist-single' : 'dist', target: 'es2022', chunkSizeWarningLimit: 9000, sourcemap: false,
+    assetsInlineLimit: mode === 'single' ? 64 * 1024 * 1024 : 4096,
+    rollupOptions: mode === 'single' ? { output: { inlineDynamicImports: true } } : {},
+  },
+}));

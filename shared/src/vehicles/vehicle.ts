@@ -151,6 +151,8 @@ export class Vehicle {
       else this.reverseHold = 0;
       if (this.gear < 0) { throttle = input.brake; brake = input.throttle; }
       if (this.gear === 0) this.gear = 1;
+      // auto hold: at a standstill with no pedal input the brakes hold the vehicle (no idle creep or rolling back)
+      if (throttle < 0.05 && Math.abs(vFwd) < 0.8 && this.reverseHold === 0) brake = Math.max(brake, 0.4);
     }
 
     // ---------- Steering (speed sensitive, smoothed, Ackermann) ----------
@@ -278,13 +280,15 @@ export class Vehicle {
         const maxF = mu * N;
         // Longitudinal: slip ratio with low-speed denominator
         const sv = w.omega * R - vx;
-        const denom = Math.max(Math.abs(vx), 1.2);
+        // braked wheels near standstill behave like static friction (no viscous creep on slopes)
+        const held = w.brakeTorque > 0 && Math.abs(w.omega) < 0.05;
+        const denom = Math.max(Math.abs(vx), held ? 0.08 : 1.2);
         w.slipRatio = sv / denom;
         Fx = clamp(w.slipRatio * s.tireLongStiffness * sp.stiff, -1.2, 1.2) * N;
-        const fZero = Math.abs(sv) / (dt * (R * R / I + 1 / mEff));
+        const fZero = Math.abs(sv) / (dt * ((held ? 0 : R * R / I) + 1 / mEff)); // a held wheel cannot spin up, so the tyre alone stops the slide
         Fx = clamp(Fx, -fZero, fZero);
         // Lateral: slip angle
-        w.slipAngle = Math.atan2(vy, Math.max(Math.abs(vx), 1.5));
+        w.slipAngle = Math.atan2(vy, Math.max(Math.abs(vx), held ? 0.3 : 1.5));
         Fy = -clamp(w.slipAngle * s.tireLatStiffness * sp.stiff, -1.15, 1.15) * N;
         const fyZero = Math.abs(vy) * mEff / dt;
         Fy = clamp(Fy, -fyZero, fyZero);

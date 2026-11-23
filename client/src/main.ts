@@ -12,7 +12,11 @@ const settings = loadSettings();
 const canvas = $<HTMLCanvasElement>('game');
 const app = new GameApp(canvas, settings);
 const SERVER_KEY = 'orl.server';
-const defaultServer = () => { try { return localStorage.getItem(SERVER_KEY) || `ws://${location.hostname || 'localhost'}:2567`; } catch { return 'ws://localhost:2567'; } };
+const defaultServer = () => {
+  // an HTTPS page may only open secure WebSockets
+  const fallback = location.protocol === 'https:' ? `wss://${location.hostname}` : `ws://${location.hostname || 'localhost'}:2567`;
+  try { return localStorage.getItem(SERVER_KEY) || fallback; } catch { return fallback; }
+};
 
 function showMenu() {
   $('menu').classList.remove('hidden'); $('hud').classList.add('hidden');

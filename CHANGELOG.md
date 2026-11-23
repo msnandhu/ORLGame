@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.0 — Polish pass: graphics and feel (2026-11-23)
+
+### Graphics
+- Terrain: four procedural PBR layers (grass, dirt, rock, mud) blended per pixel by splat weights and texture height, two-scale sampling against tiling, tri-planar rock on steep slopes, macro colour variation and wet banks.
+- Procedural sky dome with sun disc, atmospheric glow and drifting clouds; higher sun, rebalanced sun / ambient light and matched fog.
+- Grass clumps (alpha-tested thin instances) streamed in 24 m cells around the camera, density per quality preset.
+- New Ranger TX4 body built from extruded side profiles with wheel arches, flares, grille, winch, roof rack; lathe-modelled tyres and six-spoke rims.
+- Five-tier pines and lumpy broadleaf trees; animated ripples on water; more detailed explorer character.
+
+### Feel and fixes
+- Automatic hold: with no pedal input at a standstill the brakes hold the vehicle (no idle creep or rolling back).
+- Braked, stopped wheels use static tyre grip instead of a viscous low-speed model, so parked vehicles stay put on slopes.
+- Fixed terrain triangle winding (ground was culled up close), sky clipped by the far plane, cockpit camera blocked by the cab, own body visible in on-foot first person.
+- Multiplayer defaults to `wss://` when the page is served over HTTPS.
+- Renderer defaults to WebGL2; WebGPU stays available as an option in Settings.
+- `vercel.json` builds the client and serves `client/dist`; `vite build --mode single` makes a one-file build.
+- New gameplay glitch-sweep tests (spawn settle, parked on slope, idle creep, acceleration, walking). 29 tests.
+
 ## 0.2.0 — Phase 0 technical foundation (2026-11-23)
 
 ### Architecture

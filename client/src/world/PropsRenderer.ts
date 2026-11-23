@@ -30,14 +30,22 @@ export class PropsRenderer {
     // Template meshes (hi / lo)
     const trunk = MeshBuilder.CreateCylinder('t-trunk', { diameterTop: 1.2, diameterBottom: 2, height: 1, tessellation: 6 }, scene); trunk.bakeTransformIntoVertices(Matrix.Translation(0, 0.5, 0));
     const trunkLo = MeshBuilder.CreateCylinder('t-trunk-lo', { diameterTop: 1.2, diameterBottom: 2, height: 1, tessellation: 3 }, scene); trunkLo.bakeTransformIntoVertices(Matrix.Translation(0, 0.5, 0));
-    const cone = Mesh.MergeMeshes([0, 1, 2].map(k => { const c = MeshBuilder.CreateCylinder('c', { diameterTop: 0, diameterBottom: 2 * (1 - k * 0.22), height: 0.45, tessellation: 8 }, scene); c.position.y = 0.3 + k * 0.22; return c; }), true)!;
+    // pine: five drooping, jagged tiers; broadleaf: a lumpy cluster of foliage blobs
+    const cone = Mesh.MergeMeshes([0, 1, 2, 3, 4].map(k => {
+      const c = MeshBuilder.CreateCylinder('c', { diameterTop: 0.05, diameterBottom: 2.1 * (1 - k * 0.17), height: 0.34 - k * 0.02, tessellation: 11 }, scene);
+      jitter(c, 0.1, 20 + k); c.position.y = 0.2 + k * 0.17; c.rotation.y = k * 0.7; return c;
+    }), true)!;
+    const top = MeshBuilder.CreateCylinder('tip', { diameterTop: 0, diameterBottom: 0.5, height: 0.22, tessellation: 7 }, scene); top.position.y = 1.03;
+    const pine = Mesh.MergeMeshes([cone, top], true)!;
     const coneLo = MeshBuilder.CreateCylinder('cone-lo', { diameterTop: 0, diameterBottom: 2, height: 1, tessellation: 4 }, scene); coneLo.bakeTransformIntoVertices(Matrix.Translation(0, 0.5, 0));
-    const blob = jitter(MeshBuilder.CreateIcoSphere('blob', { radius: 1, subdivisions: 2, flat: true }, scene), 0.18, 7); blob.bakeTransformIntoVertices(Matrix.Translation(0, 0.62, 0));
+    const blob = Mesh.MergeMeshes(([[0, 0.62, 0, 0.8], [0.45, 0.5, 0.2, 0.55], [-0.4, 0.55, -0.15, 0.58], [0.1, 0.5, -0.45, 0.5], [-0.15, 0.95, 0.15, 0.55], [0.25, 0.85, 0.35, 0.45]] as number[][]).map(([x, y, z, r], k) => {
+      const b = jitter(MeshBuilder.CreateIcoSphere('blob', { radius: r, subdivisions: 2, flat: true }, scene), 0.16, 7 + k); b.position.set(x, y, z); return b;
+    }), true)!;
     const blobLo = MeshBuilder.CreateIcoSphere('blob-lo', { radius: 1, subdivisions: 1, flat: true }, scene); blobLo.bakeTransformIntoVertices(Matrix.Translation(0, 0.62, 0));
     const rock = jitter(MeshBuilder.CreateIcoSphere('rock', { radius: 1, subdivisions: 3, flat: true }, scene), 0.12, 3);
     const rockLo = MeshBuilder.CreateIcoSphere('rock-lo', { radius: 1, subdivisions: 1, flat: true }, scene);
     const templates: Record<string, [Mesh, Mesh, PBRMaterial]> = {
-      trunk: [trunk, trunkLo, trunkM], cone: [cone, coneLo, leafM], blob: [blob, blobLo, leafM], rock: [rock, rockLo, rockM],
+      trunk: [trunk, trunkLo, trunkM], cone: [pine, coneLo, leafM], blob: [blob, blobLo, leafM], rock: [rock, rockLo, rockM],
     };
     for (const [m, l, mm] of Object.values(templates)) { m.material = mm; l.material = mm; m.setEnabled(false); l.setEnabled(false); }
 

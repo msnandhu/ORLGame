@@ -6,6 +6,10 @@ import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { Terrain, mulberry32 } from '@orl/shared';
 import type { HavokWorld } from '../physics/HavokWorld';
+import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture';
+import { Texture } from '@babylonjs/core/Materials/Textures/texture';
+import { Constants } from '@babylonjs/core/Engines/constants';
+import type { RawImage } from '../assets/proceduralTextures';
 
 const pbr = (scene: Scene, name: string, c: Color3, rough: number, metal = 0) => {
   const m = new PBRMaterial(name, scene); m.albedoColor = c; m.roughness = rough; m.metallic = metal; return m;
@@ -18,12 +22,19 @@ export class Scenery {
   readonly casters: Mesh[] = [];
   readonly props: Mesh[] = [];
 
-  constructor(scene: Scene, t: Terrain, physics: HavokWorld | null) {
+  private waterNormal: Texture | null = null;
+
+  constructor(scene: Scene, t: Terrain, physics: HavokWorld | null, waterNormal?: RawImage) {
     // Water
     this.water = MeshBuilder.CreateGround('water', { width: t.size, height: t.size, subdivisions: 1 }, scene);
     this.water.position.y = t.waterLevel;
-    const wm = pbr(scene, 'water', new Color3(0.1, 0.2, 0.2), 0.05);
-    wm.alpha = 0.82; wm.clearCoat.isEnabled = true; wm.clearCoat.intensity = 1; wm.environmentIntensity = 1.2;
+    const wm = pbr(scene, 'water', new Color3(0.04, 0.12, 0.13), 0.04);
+    wm.alpha = 0.78; wm.environmentIntensity = 1.4; wm.indexOfRefraction = 1.33;
+    if (waterNormal) {
+      const n = new RawTexture(waterNormal.data, waterNormal.width, waterNormal.height, Constants.TEXTUREFORMAT_RGBA, scene, true, false, Texture.TRILINEAR_SAMPLINGMODE);
+      n.wrapU = n.wrapV = Texture.WRAP_ADDRESSMODE; n.uScale = n.vScale = t.size / 14; n.level = 0.35;
+      wm.bumpTexture = n; this.waterNormal = n;
+    }
     this.water.material = wm; this.water.receiveShadows = true; this.water.isPickable = false;
 
     // Camp structures straight from the shared static boxes (identical to what physics collides with)
@@ -73,6 +84,7 @@ export class Scenery {
   }
 
   animate(timeMs: number) {
+    if (this.waterNormal) { this.waterNormal.uOffset = timeMs * 0.00002; this.waterNormal.vOffset = timeMs * 0.000013; }
     const pos = this.flag.getVerticesData('position');
     if (!pos) return;
     for (let i = 0; i < pos.length; i += 3) { const x = pos[i] + 1.1; pos[i + 1] = Math.sin(timeMs * 0.004 + x * 2.5) * 0.12 * x; }

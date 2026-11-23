@@ -5,13 +5,15 @@ import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { Terrain, Vehicle, Character, RANGER_TX4, WORLD_SEED, PHYSICS_HZ, Vec3, Quat, type Settings, type PlayerTransform } from '@orl/shared';
 import { createEngine, type Backend } from '../engine/createEngine';
 import { AssetManager } from '../assets/AssetManager';
-import { detailTextures } from '../assets/proceduralTextures';
+import { detailTextures, type RawImage } from '../assets/proceduralTextures';
+import { terrainLayers } from '../assets/terrainTextures';
 import { HavokWorld, type HavokModule } from '../physics/HavokWorld';
 import { Environment } from '../rendering/Environment';
 import { WheelParticles } from '../rendering/WheelParticles';
 import { TerrainRenderer } from '../world/TerrainRenderer';
 import { PropsRenderer } from '../world/PropsRenderer';
 import { Scenery } from '../world/Scenery';
+import { GrassField } from '../world/GrassField';
 import { VehicleView } from '../vehicles/VehicleView';
 import { CharacterView } from '../characters/CharacterView';
 import { CameraRig } from '../cameras/CameraRig';
@@ -33,7 +35,7 @@ export class GameApp {
   terrain!: Terrain; physics: HavokWorld | null = null;
   vehicle!: Vehicle; player!: Character;
   vView!: VehicleView; cView!: CharacterView; rig!: CameraRig; env!: Environment;
-  terrainR!: TerrainRenderer; props!: PropsRenderer; scenery!: Scenery; particles!: WheelParticles;
+  terrainR!: TerrainRenderer; props!: PropsRenderer; grass!: GrassField; scenery!: Scenery; particles!: WheelParticles;
   hud!: Hud; input!: Input; audio = new EngineAudio(); net = new NetClient();
   private remoteViews = new Map<string, { v: VehicleView; c: CharacterView; sim: Vehicle; ch: Character }>();
   inVehicle = false; paused = false; started = false;
@@ -57,7 +59,8 @@ export class GameApp {
       } catch (e) { log.warn('physics', 'Havok unavailable; continuing without dynamic props', e); return null; }
     }, 2);
     assets.add('Terrain generation', () => new Terrain(WORLD_SEED), 4);
-    assets.add('Terrain textures', () => detailTextures(), 2);
+    assets.add('Terrain textures', () => detailTextures(), 1);
+    assets.add('Terrain materials', () => terrainLayers(), 3);
     await assets.loadAll();
     this.terrain = assets.get<Terrain>('Terrain generation');
 
@@ -67,11 +70,12 @@ export class GameApp {
     this.env = new Environment(scene, this.rig.camera);
     const hk = assets.get<HavokModule | null>('Havok physics');
     if (hk) { this.physics = new HavokWorld(scene, hk); this.physics.buildStatic(this.terrain); this.physics.addProxy('vehicle', new Vector3(1.9, 1.3, 4.6)); this.physics.addProxy('player', new Vector3(0.6, 1.8, 0.6)); }
-    this.terrainR = new TerrainRenderer(scene, this.terrain, assets.get('Terrain textures'));
+    this.terrainR = new TerrainRenderer(scene, this.terrain, assets.get('Terrain textures'), assets.get('Terrain materials'));
     onProgress(0.85, 'Planting trees');
     await tick();
     this.props = new PropsRenderer(scene, this.terrain);
-    this.scenery = new Scenery(scene, this.terrain, this.physics);
+    this.grass = new GrassField(scene, this.terrain);
+    this.scenery = new Scenery(scene, this.terrain, this.physics, assets.get<{ normal: RawImage }>('Terrain textures').normal);
     this.vehicle = new Vehicle(RANGER_TX4, this.terrain);
     this.player = new Character(this.terrain);
     this.vView = new VehicleView(scene, this.vehicle);
@@ -120,7 +124,7 @@ export class GameApp {
     this.scaling = p.hardwareScaling; this.engine.setHardwareScalingLevel(this.scaling);
     this.env.apply(p);
     this.terrainR.viewDistance = p.viewDistance; this.props.viewDistance = Math.min(p.viewDistance, 1400);
-    this.props.setDensity(p.treeDensity); this.particles.budget = p.particles;
+    this.props.setDensity(p.treeDensity); this.grass.setDensity(p.grassDensity); this.particles.budget = p.particles;
     saveSettings(this.settings);
   }
 
@@ -214,12 +218,13 @@ export class GameApp {
     this.cView.sync(this.player, dt);
     this.cView.setVisible(!this.inVehicle && this.rig.mode !== 'first-person');
     this.scenery.animate(performance.now());
+    this.env.sky.update(performance.now() / 1000);
     this.syncRemotes(dt);
     const focus = this.inVehicle ? v.body.pos : this.player.pos;
     const freeMove = { f: this.input.axis(['KeyS'], ['KeyW']), r: this.input.axis(['KeyA'], ['KeyD']), u: this.input.axis(['KeyQ'], ['KeyE']), fast: this.input.isDown('ShiftLeft') };
     this.rig.update(dt, focus, this.inVehicle ? v.body.quat.yaw() : this.player.heading, this.inVehicle, Math.abs(v.forwardSpeed()), this.inVehicle ? v.body.quat : null, freeMove);
     const cam = this.rig.camera.position;
-    this.terrainR.update(cam); this.props.update(cam);
+    this.terrainR.update(cam); this.props.update(cam); this.grass.update(cam);
     this.env.follow(new Vector3(focus.x, focus.y, focus.z));
     if (this.started) {
       this.hud.update(dt, { px: focus.x, pz: focus.z, viewYaw: this.rig.viewYaw, inVehicle: this.inVehicle, v, vx: v.body.pos.x, vz: v.body.pos.z, vHeading: v.body.quat.yaw(), stamina: this.player.stamina, surface: T.surfaceAt(focus.x, focus.z) });

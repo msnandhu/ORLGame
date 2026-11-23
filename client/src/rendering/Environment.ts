@@ -5,14 +5,13 @@ import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator';
 import { CascadedShadowGenerator } from '@babylonjs/core/Lights/Shadows/cascadedShadowGenerator';
-import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { ReflectionProbe } from '@babylonjs/core/Probes/reflectionProbe';
 import { DefaultRenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline';
 import { SSAO2RenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/ssao2RenderingPipeline';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration';
 import type { Camera } from '@babylonjs/core/Cameras/camera';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
-import { SkyMaterial } from '@babylonjs/materials/sky/skyMaterial';
+import { Sky } from './Sky';
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent';
 import '@babylonjs/core/PostProcesses/RenderPipeline/postProcessRenderPipelineManagerSceneComponent';
 import '@babylonjs/core/Rendering/prePassRendererSceneComponent';
@@ -25,42 +24,38 @@ export class Environment {
   readonly sun: DirectionalLight;
   readonly hemi: HemisphericLight;
   readonly sunDir: Vector3;
-  private sky: SkyMaterial;
+  readonly sky: Sky;
   shadow: ShadowGenerator | null = null;
   private pipeline: DefaultRenderingPipeline | null = null;
   private ssao: SSAO2RenderingPipeline | null = null;
   private casters: AbstractMesh[] = [];
 
   constructor(private scene: Scene, private camera: Camera) {
-    // late-afternoon sun (elevation ~28°, from the south-west)
-    const el = (28 * Math.PI) / 180, az = (215 * Math.PI) / 180;
+    // afternoon sun (elevation ~38°, from the south-west)
+    const el = (38 * Math.PI) / 180, az = (215 * Math.PI) / 180;
     this.sunDir = new Vector3(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)).normalize();
     scene.clearColor = new Color4(0.72, 0.78, 0.82, 1);
     scene.ambientColor = new Color3(0.25, 0.27, 0.3);
 
-    const skybox = MeshBuilder.CreateBox('skyBox', { size: 600 } , scene); // corners (520 m) stay inside the smallest far plane (600 m); infiniteDistance keeps it centred on the camera
-    this.sky = new SkyMaterial('sky', scene);
-    this.sky.backFaceCulling = false;
-    this.sky.turbidity = 6; this.sky.rayleigh = 1.6; this.sky.mieCoefficient = 0.005; this.sky.mieDirectionalG = 0.8; this.sky.luminance = 1;
-    this.sky.useSunPosition = true; this.sky.sunPosition = this.sunDir.scale(100);
-    this.sky.fogEnabled = false;
-    skybox.material = this.sky; skybox.infiniteDistance = true; skybox.isPickable = false;
+    this.sky = new Sky(scene, this.sunDir);
+    const skybox = this.sky.mesh;
+    scene.clearColor = new Color4(this.sky.horizon.r, this.sky.horizon.g, this.sky.horizon.b, 1);
 
     this.sun = new DirectionalLight('sun', this.sunDir.negate(), scene);
-    this.sun.intensity = 3.2; this.sun.diffuse = new Color3(1, 0.94, 0.86);
+    this.sun.intensity = 3.6; this.sun.diffuse = new Color3(1, 0.93, 0.82);
     this.hemi = new HemisphericLight('sky-ambient', new Vector3(0, 1, 0), scene);
-    this.hemi.intensity = 0.75; this.hemi.diffuse = new Color3(0.75, 0.84, 1); this.hemi.groundColor = new Color3(0.3, 0.24, 0.17);
+    this.hemi.intensity = 0.7; this.hemi.diffuse = new Color3(0.7, 0.8, 1); this.hemi.groundColor = new Color3(0.32, 0.27, 0.2);
 
     // image-based lighting captured from the procedural sky (for PBR reflections on paint, glass, water)
     const probe = new ReflectionProbe('sky-probe', 128, scene);
     probe.renderList!.push(skybox);
     probe.refreshRate = 0; // render once
     scene.environmentTexture = probe.cubeTexture;
-    scene.environmentIntensity = 0.7;
+    scene.environmentIntensity = 0.8;
 
     scene.fogMode = Scene.FOGMODE_LINEAR;
-    scene.fogColor = new Color3(0.72, 0.78, 0.82);
-    scene.fogStart = 120; scene.fogEnd = 1000;
+    scene.fogColor = new Color3(0.6, 0.7, 0.8);
+    scene.fogStart = 160; scene.fogEnd = 1000;
 
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
     scene.imageProcessingConfiguration.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;

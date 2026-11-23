@@ -64,6 +64,7 @@ $('btn-mp').addEventListener('click', async () => {
   else status.textContent = `Could not reach ${url}. Start one with "npm run dev:server", or set the address in Settings.`;
 });
 $('btn-map').addEventListener('click', () => app.toggleMap());
+$('btn-pause-map').addEventListener('click', () => app.toggleMap());
 $('btn-menu-settings').addEventListener('click', () => $('settings').classList.remove('hidden'));
 
 // ---------- pause menu ----------

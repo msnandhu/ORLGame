@@ -33,7 +33,8 @@ function bladeTexture(size = 128): Uint8Array {
 }
 
 /**
- * Grass clumps (three crossed, alpha-tested cards) as thin instances in 24 m cells around the camera.
+ * Grass clumps (three crossed, alpha-tested cards) as thin instances in 24 m cells around the camera, in the valley
+ * and anywhere on the island.
  * Instances are generated deterministically per cell on grassy, gentle, dry ground away from trails,
  * and their normals point up so they light like the ground they grow from.
  */
@@ -69,10 +70,13 @@ export class GrassField {
     for (let i = 0; i < n; i++) {
       const x = (ci + rnd()) * CELL, z = (cj + rnd()) * CELL, s = 0.45 + rnd() * 0.55, yaw = rnd() * 6.283, hue = rnd();
       if (!t.inBounds(x, z)) continue;
-      const gi = Math.round((x + t.half) / t.cell), gj = Math.round((z + t.half) / t.cell);
-      if (t.surface[gj * t.n + gi] !== Surface.Grass) continue;
+      if (t.inCore(x, z)) {
+        const gi = Math.round((x + t.half) / t.cell), gj = Math.round((z + t.half) / t.cell);
+        if (t.surface[gj * t.n + gi] !== Surface.Grass) continue;
+      } else if (t.surfaceAt(x, z) !== Surface.Grass) continue; // the island: roads, trails, snow and sand are not grass
       const y = t.heightAt(x, z);
-      if (y < t.waterLevel + 0.4 || t.normalAt(x, z)[1] < 0.85 || t.trailDist(x, z) < 4 || t.boxPenetration(x, y + 0.3, z, 0.8, NOUT) > 0) continue;
+      if (t.waterAt(x, z) > y - 0.4 || t.normalAt(x, z)[1] < 0.85) continue;
+      if (t.inCore(x, z) && (t.trailDist(x, z) < 4 || t.boxPenetration(x, y + 0.3, z, 0.8, NOUT) > 0)) continue;
       Matrix.ComposeToRef(new Vector3(s * (0.9 + hue * 0.4), s * (0.7 + rnd() * 0.6), s), Quaternion.RotationYawPitchRollToRef(yaw, 0, 0, q), new Vector3(x, y - 0.04, z), TMP);
       TMP.copyToArray(mats, mats.length);
       cols.push(0.85 + hue * 0.35, 0.9 + hue * 0.15, 0.7 + hue * 0.2, 1);

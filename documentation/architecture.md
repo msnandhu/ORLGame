@@ -105,6 +105,7 @@ The vehicle spec's `look.seat` gives the driver's hip point. The door used for e
   - The terrain material is the valley's splat material with a second weight set (`splat2`): sand is the dirt layer bleached and warmed, snow fills the hollows first. Both GLSL and WGSL are provided.
 - **IslandFeatures** adds the sea (one plane at level 0), lakes (frozen ones as ice), river ribbons with white water where they drop faster than 12 %, paved ribbons for island highways and roads, and bridges (deck underside, parapets, piers down to the bed).
 - **Far view:** each preset sets the island's far clip (8 km low to 40 km ultra) and an exponential haze matched to the sky's horizon colour. The camera's near plane is 0.3 m (0.08 m in first person) to keep depth precision over that range.
+- **No-worker fallback:** if a page blocks web workers (constructor throws, an error event, or no reply within 10–15 s), the world map renders on the main thread one request at a time (`mapCore.ts`), and the island builds one node per frame on the main thread.
 - **Minimap and fast travel:** outside the valley the minimap shows 2 km of island imagery rendered by the map worker (re-rendered every 600 m). On the world map, T fast travels to the selected or newest marker in single player: it picks the nearest dry, level ground within 400 m and waits for the terrain there to stream in.
 
 ## Coordinate frame

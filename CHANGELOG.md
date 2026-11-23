@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.2: World map fix and more graphics
+
+- **World map fixed.** The *World map* button on the main menu did nothing (the map only opened once a game had started), and the map was not drawn there. It now opens from the main menu, from a new *World map* button in the pause menu and with M in game; Esc or M closes it.
+- **Works where background workers are blocked.** Some embedded pages forbid web workers. The map and the island terrain now fall back to rendering on the main thread (a bit slower to fill in) instead of staying blank.
+- **Grass across the whole island,** not just the valley: clumps grow on grassy, gentle, dry ground everywhere, never on roads, trails, snow or sand.
+- **Island trees cast shadows** near you.
+- Map buttons fit on one row on smaller screens.
+
 ## 0.8.1: Island graphics pass
 
 - **Forests read as forests from afar.** Beyond the range where real trees are drawn, woodland is coloured as canopy (dark jungle green in the Deep Forest, blue-green pine in the hills and snow, mixed woods on the plains), so distant forest no longer looks like bare grass.

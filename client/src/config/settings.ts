@@ -5,18 +5,23 @@ export const DEFAULT_SETTINGS: Settings = {
   graphics: 'high', adaptiveQuality: true, mouseSensitivity: 1, invertY: false, volume: 0.6, showFps: false, preferWebGPU: false,
 };
 const KEY = 'orl.settings.v2';
+/** Bumped when a saved setting must be reset. Rev 3: the old "Prefer WebGPU = on" default is cleared (WebGL2 is the default renderer). */
+const REV = 3;
 
 /** Settings persisted per browser (localStorage), tolerant of blocked storage. */
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEY);
-    const s = { ...DEFAULT_SETTINGS, ...(raw ? JSON.parse(raw) : {}) } as Settings;
+    const saved = raw ? JSON.parse(raw) : {};
+    const s = { ...DEFAULT_SETTINGS, ...saved } as Settings & { rev?: number };
+    if (saved.rev !== REV) s.preferWebGPU = false;
+    delete s.rev;
     if (!['low', 'medium', 'high', 'ultra'].includes(s.graphics)) s.graphics = DEFAULT_SETTINGS.graphics;
     return s;
   } catch (e) { log.warn('settings', 'Could not read saved settings; using defaults', e); return { ...DEFAULT_SETTINGS }; }
 }
 export function saveSettings(s: Settings) {
-  try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* storage blocked: settings stay in memory */ }
+  try { localStorage.setItem(KEY, JSON.stringify({ ...s, rev: REV })); } catch { /* storage blocked: settings stay in memory */ }
 }
 
 export interface QualityPreset {

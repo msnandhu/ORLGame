@@ -9,6 +9,7 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { Constants } from '@babylonjs/core/Engines/constants';
 import { Terrain, Surface, Noise2D } from '@orl/shared';
 import type { RawImage } from '../assets/proceduralTextures';
+import { log } from '../core/logger';
 import { TerrainMaterialPlugin, SPLAT_KIND } from '../rendering/TerrainMaterialPlugin';
 
 /** Splat weights per surface type: grass, dirt, rock, mud. */
@@ -42,7 +43,13 @@ export class TerrainRenderer {
     m.albedoColor = Color3.White();
     m.bumpTexture = mk(detail.normal, false); m.bumpTexture.level = 0.45;
     m.metallic = 0; m.roughness = 0.92; m.environmentIntensity = 0.45;
-    new TerrainMaterialPlugin(m, layers.map(l => mk(l, true)));
+    try {
+      new TerrainMaterialPlugin(m, layers.map(l => mk(l, true)));
+    } catch (e) {
+      // never let a shader-language mismatch stop the game: fall back to the tinted detail material
+      log.warn('terrain', 'Splat shading unavailable on this backend; using the plain terrain material', e);
+      m.albedoTexture = mk(detail.albedo, true);
+    }
     m.maxSimultaneousLights = 4;
     this.material = m;
     this.build();

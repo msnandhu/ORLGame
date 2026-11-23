@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 — WebGPU start-up hotfix
+
+- Fixed: the game failed to start with "The plugin TerrainSplat can't be added to the material terrain" when the browser ran the WebGPU renderer. The terrain splat shader now has a WGSL version as well as GLSL.
+- Saved settings from older builds had "Prefer WebGPU" switched on; they are reset once so WebGL2 is the default again (you can still opt in under Settings).
+- If start-up fails on WebGPU for any reason, the game switches to WebGL2 and reloads once instead of stopping on an error screen.
+- If the splat shader can't attach on some future backend, the terrain falls back to a plain textured material instead of crashing.
+
 ## 0.3.0 — Polish pass: graphics and feel (2026-11-23)
 
 ### Graphics

@@ -76,4 +76,16 @@ for (const id of ['help', 'bigmap']) $(id).addEventListener('click', () => $(id)
 const fill = $('load-fill'), label = $('load-label');
 app.init((f, l) => { fill.style.width = `${Math.round(f * 100)}%`; label.textContent = l; })
   .then(() => { $('loading').classList.add('hidden'); showMenu(); log.info('boot', 'Ready'); })
-  .catch(e => fatal('The game could not start', e));
+  .catch(e => {
+    // WebGPU drivers vary a lot; if anything fails on WebGPU, retry once on WebGL2 instead of stopping
+    let retried = false;
+    try { retried = sessionStorage.getItem('orl.webgl2-retry') === '1'; } catch { /* storage blocked */ }
+    if (app.backend === 'WebGPU' && !retried) {
+      log.warn('boot', 'Start-up failed on WebGPU; switching to WebGL2 and reloading', e);
+      settings.preferWebGPU = false; saveSettings(settings);
+      try { sessionStorage.setItem('orl.webgl2-retry', '1'); } catch { /* storage blocked */ }
+      location.reload();
+      return;
+    }
+    fatal('The game could not start', e);
+  });

@@ -46,6 +46,8 @@ export class IslandRenderer {
   /** nodes built so far (stats, tests) */
   built = 0;
   enabled = true;
+  /** the nearest level's trees cast shadows: the game adds and removes them from the shadow generator */
+  onCasters: (added: Mesh[], removed: Mesh[]) => void = () => {};
 
   constructor(private scene: Scene, private material: Material, private outer: OuterWorld) {
     const n = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 1));
@@ -56,13 +58,12 @@ export class IslandRenderer {
           if (e.data.type === 'ready') { slot.ready = true; return; }
           slot.busy--; this.receive(e.data.d!);
         };
-        w.onerror = ev => { log.warn('island', 'Island worker failed; building on the main thread', ev); this.workers = []; };
+        w.onerror = ev => this.dropWorkers(ev);
         this.workers.push(slot);
       }
-    } catch (e) {
-      log.warn('island', 'Workers unavailable; island terrain builds on the main thread', e);
-      this.workers = [];
-    }
+    } catch (e) { this.dropWorkers(e); }
+    // workers that are blocked without an error never say they are ready: build on the main thread instead
+    setTimeout(() => { if (this.workers.length && !this.workers.some(w => w.ready)) this.dropWorkers('no reply from the island workers'); }, 15000);
     // tree templates: a fuller set for the nearest level, a light one for the next
     const mat = (name: string, c: Color3) => { const m = new PBRMaterial(name, scene); m.albedoColor = c; m.metallic = 0; m.roughness = 0.95; m.environmentIntensity = 0.3; return m; };
     const bark = mat('island-bark', new Color3(0.29, 0.21, 0.15)), leaves = mat('island-leaves', new Color3(1, 1, 1));
@@ -88,6 +89,16 @@ export class IslandRenderer {
     };
     this.treeTpl = [make(true), make(false)];
     for (let iz = -1; iz <= 0; iz++) for (let ix = -1; ix <= 0; ix++) this.node(ROOT_LEVEL, ix, iz);
+  }
+
+  /** Fall back to building nodes on the main thread; nodes that were in flight are requested again. */
+  private dropWorkers(reason: unknown) {
+    if (!this.workers.length && this.fallback) return;
+    log.warn('island', 'Island workers unavailable; building terrain on the main thread', reason);
+    for (const w of this.workers) w.w.terminate();
+    this.workers = [];
+    for (const n of this.byId.values()) if (n.state === 'pending' && !this.queue.includes(n)) n.state = 'none';
+    this.byId.clear();
   }
 
   private key(level: number, ix: number, iz: number) { return (level * 1024 + (ix + 512)) * 1024 + (iz + 512); }
@@ -194,7 +205,7 @@ export class IslandRenderer {
     m.material = this.material; m.receiveShadows = true; m.isPickable = false;
     m.freezeWorldMatrix(); m.setEnabled(false);
     n.mesh = m; n.minY = d.minY; n.maxY = d.maxY; n.state = 'ready'; this.built++;
-    if (d.trees.length) n.trees = this.treeMeshes(n, d.trees);
+    if (d.trees.length) { n.trees = this.treeMeshes(n, d.trees); if (n.level === 0) this.onCasters(n.trees, []); }
   }
 
   /** Thin-instanced trunks and crowns for one node. */
@@ -236,6 +247,7 @@ export class IslandRenderer {
   private evict() {
     const idle = [...this.nodes.values()].filter(n => !this.shown.has(n) && n.state === 'ready' && n.level < ROOT_LEVEL).sort((a, b) => a.used - b.used);
     for (const n of idle.slice(0, Math.max(0, this.nodes.size - MAX_NODES * 0.8))) {
+      if (n.level === 0 && n.trees.length) this.onCasters([], n.trees);
       n.mesh?.dispose(); for (const t of n.trees) t.dispose();
       this.nodes.delete(n.key);
     }

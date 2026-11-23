@@ -129,6 +129,7 @@ export class GameApp {
     // the rest of the island: streamed terrain, sea, lakes, rivers, roads and bridges
     this.terrainR.viewDistance = Infinity;
     this.islandR = new IslandRenderer(scene, this.terrainR.material, this.terrain.outer);
+    this.islandR.onCasters = (added, removed) => { for (const m of removed) this.env.removeShadowCaster(m); for (const m of added) this.env.addShadowCaster(m); };
     this.islandF = new IslandFeatures(scene, this.terrain.outer, this.scenery.water.material!);
     for (const spec of VEHICLES) {
       const sim = new Vehicle(spec, this.terrain), view = new VehicleView(scene, sim), fx = new DamageFx(scene, sim);
@@ -235,6 +236,7 @@ export class GameApp {
    */
   async travelToPoint(x: number, z: number): Promise<string> {
     const say = (m: string) => { if (this.worldMap.isOpen) this.worldMap.flash(m); else this.hud.toast(m); return m; };
+    if (!this.started) return say('Start or continue a game to travel');
     if (this.net.status === 'online') return say('Fast travel is off in multiplayer');
     if (this.transition || this.dialogue) return say('Finish what you are doing first');
     const T = this.terrain;
@@ -432,6 +434,7 @@ export class GameApp {
     inp.pollGamepad();
     this.trackFps(dt);
     if (this.started) this.handleGlobalKeys();
+    else if (this.worldMap?.isOpen && (this.input.wasPressed('KeyM') || this.input.wasPressed('Escape'))) this.toggleMap();
     if (this.started && !this.paused) {
       this.playTime += dt;
       const gp = inp.gamepad;
@@ -562,6 +565,8 @@ export class GameApp {
       net.classList.toggle('hidden', this.net.status === 'offline');
       net.textContent = this.net.status === 'online' ? `Online · ${this.net.remotes.size + 1} players` : this.net.status === 'connecting' ? 'Connecting…' : 'Server unreachable';
     }
+    // the map opened from the main menu still needs drawing
+    if (!this.started && this.worldMap?.isOpen) this.worldMap.update(dt, this.mapState(this.player.pos.x, this.player.pos.z));
     this.scene.render();
     this.input.endFrame();
   }
@@ -679,7 +684,12 @@ export class GameApp {
   }
   /** The world map pauses single-player driving while it is open (online, the world keeps running). */
   toggleMap() {
-    if (!this.started) return;
+    if (!this.started) {
+      // from the main menu: the map replaces the menu until it is closed
+      if (this.worldMap.isOpen) { this.worldMap.close(); $('menu').classList.remove('hidden'); }
+      else { $('menu').classList.add('hidden'); this.worldMap.open(this.mapState(this.player.pos.x, this.player.pos.z)); }
+      return;
+    }
     if (this.worldMap.isOpen) {
       this.worldMap.close();
       if (this.mapPaused) { this.paused = false; this.audio.start(); }

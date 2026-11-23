@@ -1,6 +1,7 @@
 import { REGIONS, REGION_BY_ID, type Island, type Poi, type RegionId } from '@orl/shared';
 import MapWorker from './mapWorker?worker&inline';
-import type { MapMeta } from './mapWorker';
+import type { MapMeta } from './mapCore';
+import { log } from '../../core/logger';
 import { ICON_COLOR, LEGEND, drawIcon, drawRegionGlyph } from './icons';
 
 interface View { cx: number; cz: number; mpp: number }
@@ -28,7 +29,11 @@ export class WorldMap {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private inset: HTMLCanvasElement;
-  private worker: Worker;
+  private worker: Worker | null = null;
+  /** main-thread renderer, used when background workers are blocked (some embedded pages forbid them) */
+  private local: Promise<typeof import('./mapCore')> | null = null;
+  private localQueue: Record<string, unknown>[] = [];
+  private gotReply = false;
   private meta: MapMeta | null = null;
   private base: Img | null = null;
   private detail: Img | null = null;
@@ -80,9 +85,15 @@ export class WorldMap {
     this.inset = this.root.querySelector('#wm-inset')!;
     this.drawCompass();
     this.loadState();
-    this.worker = new MapWorker();
-    this.worker.onmessage = e => this.onWorker(e.data);
-    this.worker.postMessage({ type: 'meta' });
+    try {
+      const w = new MapWorker();
+      w.onmessage = e => { this.gotReply = true; this.onWorker(e.data); };
+      w.onerror = e => this.useMainThread(e);
+      this.worker = w;
+    } catch (e) { this.useMainThread(e); }
+    this.post({ type: 'meta' });
+    // a worker that never answers (blocked without an error) also falls back
+    setTimeout(() => { if (!this.gotReply && this.worker) this.useMainThread('no reply from the map worker'); }, 10000);
     this.bindInput();
   }
 
@@ -91,6 +102,38 @@ export class WorldMap {
     try { const m = JSON.parse(store.get('orl.map.markers') ?? '[]'); if (Array.isArray(m)) this.markers = m.filter(q => Number.isFinite(q.x) && Number.isFinite(q.z)).slice(0, 9); } catch { /* ignore */ }
   }
   private saveMarkers() { store.set('orl.map.markers', JSON.stringify(this.markers)); this.onMarkersChanged(); }
+  /** Send a request to the map renderer (worker, or main thread fallback). */
+  private post(m: Record<string, unknown>) {
+    if (this.worker) { this.worker.postMessage(m); return; }
+    this.localQueue.push(m);
+    if (this.localQueue.length === 1) this.drainLocal();
+  }
+  private useMainThread(reason: unknown) {
+    if (this.local) return;
+    log.warn('map', 'Map worker unavailable; rendering the map on the main thread', reason);
+    this.worker?.terminate(); this.worker = null;
+    this.local = import('./mapCore');
+    this.localReq = null;
+    if (!this.meta) this.post({ type: 'meta' });
+    else if (!this.base) { const b = this.meta.bounds, W = 1000; this.post({ type: 'render', id: -1, x0: b.minX, z0: b.minZ, x1: b.maxX, z1: b.maxZ, w: W, h: Math.round(W * (b.maxZ - b.minZ) / (b.maxX - b.minX)) }); }
+  }
+  /** One request at a time, yielding between them so the page stays responsive. */
+  private drainLocal() {
+    setTimeout(async () => {
+      const m = this.localQueue[0];
+      if (!m) return;
+      try {
+        const core = await this.local!;
+        const r = core.handleMapRequest(m as Parameters<typeof core.handleMapRequest>[0]);
+        if (r) this.onWorker(r.msg as Parameters<WorldMap['onWorker']>[0]);
+      } catch (e) { log.warn('map', 'Map render failed', e); }
+      this.localQueue.shift();
+      // stale detail renders are skipped: only the newest one matters
+      this.localQueue = this.localQueue.filter((q, i, all) => !(q.type === 'render' && typeof q.id === 'number' && q.id > 0 && all.some((o, j) => j > i && o.type === 'render' && typeof o.id === 'number' && (o.id as number) > 0)));
+      if (this.localQueue.length) this.drainLocal();
+    }, 0);
+  }
+
   /** The marker the HUD guides to: the most recently set one. */
   get waypoint(): MapMarker | null { return this.markers[this.markers.length - 1] ?? null; }
 
@@ -100,7 +143,7 @@ export class WorldMap {
       this.initExplored();
       this.buildMasks();
       const b = m.meta.bounds, W = 1000, H = Math.round(W * (b.maxZ - b.minZ) / (b.maxX - b.minX));
-      this.worker.postMessage({ type: 'render', id: -1, x0: b.minX, z0: b.minZ, x1: b.maxX, z1: b.maxZ, w: W, h: H });
+      this.post({ type: 'render', id: -1, x0: b.minX, z0: b.minZ, x1: b.maxX, z1: b.maxZ, w: W, h: H });
       if (this.isOpen) { this.fitView(this.region, true); this.renderPanels(); }
     } else if (m.type === 'render' && m.px) {
       const c = document.createElement('canvas'); c.width = m.w!; c.height = m.h!;
@@ -117,7 +160,7 @@ export class WorldMap {
     if (this.localReq && Math.hypot(this.localReq.x - x, this.localReq.z - z) < 600) return;
     this.localReq = { x, z };
     const R = 1024;
-    this.worker.postMessage({ type: 'render', id: -2, x0: x - R, z0: z - R, x1: x + R, z1: z + R, w: 512, h: 512 });
+    this.post({ type: 'render', id: -2, x0: x - R, z0: z - R, x1: x + R, z1: z + R, w: 512, h: 512 });
   }
 
   // ------------------------------------------------------------------ exploration
@@ -331,7 +374,7 @@ export class WorldMap {
     const x0 = v.cx - W / 2 * v.mpp * 1.15, x1 = v.cx + W / 2 * v.mpp * 1.15, z0 = v.cz - H / 2 * v.mpp * 1.15, z1 = v.cz + H / 2 * v.mpp * 1.15;
     const k = Math.min(1, Math.sqrt(520000 / (W * H * 1.32)));
     this.detailReq++;
-    this.worker.postMessage({ type: 'render', id: this.detailReq, x0, z0, x1, z1, w: Math.round(W * 1.15 * k), h: Math.round(H * 1.15 * k) });
+    this.post({ type: 'render', id: this.detailReq, x0, z0, x1, z1, w: Math.round(W * 1.15 * k), h: Math.round(H * 1.15 * k) });
   }
 
   private buildMasks() {

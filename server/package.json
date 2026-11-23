@@ -1,0 +1,1 @@
+{"name":"@orl/server","private":true,"version":"0.2.0","type":"module","scripts":{"dev":"tsx watch src/index.ts","build":"node build.mjs","start":"node dist/server.mjs"},"dependencies":{"@orl/shared":"*","@colyseus/core":"0.18.25","@colyseus/ws-transport":"0.18.4","@colyseus/schema":"5.0.45"},"devDependencies":{"tsx":"4.20.6","esbuild":"0.25.11","@types/node":"22.18.12"}}

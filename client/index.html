@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Off-Road Legends</title>
+<link rel="stylesheet" href="/src/ui/style.css" />
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="topleft">
+    <div id="compass"><div id="compass-strip"></div><div id="compass-mark"></div></div>
+    <div id="surface" class="chip">Grass</div>
+  </div>
+  <canvas id="minimap" width="200" height="200"></canvas>
+  <div id="net" class="chip hidden"></div>
+  <div id="prompt" class="hidden"></div>
+  <div id="toast"></div>
+  <div id="foot-hud">
+    <div class="bar-label">STAMINA</div><div class="bar"><div id="stamina-fill"></div></div>
+  </div>
+  <div id="veh-hud" class="hidden">
+    <canvas id="tacho" width="230" height="230"></canvas>
+    <div id="speed"><span id="speed-val">0</span><small>km/h</small></div>
+    <div id="gear">N</div>
+    <div id="trans" class="chip">AUTO</div>
+    <div id="indicators">
+      <span id="ind-drive" class="ind on">4H</span>
+      <span id="ind-lock" class="ind">DIFF LOCK</span>
+      <span id="ind-hb" class="ind warn">HANDBRAKE</span>
+      <span id="ind-flood" class="ind warn">ENGINE FLOODED</span>
+    </div>
+    <div id="fuel"><div class="bar-label">FUEL</div><div class="bar"><div id="fuel-fill"></div></div></div>
+    <div id="wheels"><div class="w" id="w0"></div><div class="w" id="w1"></div><div class="w" id="w2"></div><div class="w" id="w3"></div><div id="wlabel">WHEEL LOAD / SLIP</div></div>
+  </div>
+  <div id="fps"></div>
+</div>
+
+<div id="bigmap" class="hidden overlay"><canvas id="bigmap-canvas" width="720" height="720"></canvas><div class="hint">M to close · Orange arrow = you · White square = vehicle · Red = fuel · Blue = other players</div></div>
+
+<div id="help" class="hidden overlay panel">
+  <h2>Controls</h2>
+  <div class="cols">
+    <div><h3>On foot</h3>
+      <p><b>W A S D</b> move · <b>Shift</b> sprint · <b>Space</b> jump · <b>C</b> crouch<br><b>E</b> enter vehicle</p></div>
+    <div><h3>Driving</h3>
+      <p><b>W / S</b> throttle / brake (hold S when stopped to reverse)<br><b>A / D</b> steer · <b>Space</b> handbrake<br>
+      <b>G</b> drive mode 2H → 4H → 4L · <b>L</b> diff lock<br><b>T</b> auto / manual · <b>X / Z</b> shift up / down (manual)<br>
+      <b>F</b> hold at the camp fuel pump to refuel · <b>N</b> headlights<br><b>R</b> recover vehicle (upright) · <b>E</b> exit</p></div>
+    <div><h3>Camera &amp; game</h3>
+      <p><b>Mouse</b> look (click to capture) · <b>Wheel</b> zoom<br><b>V</b> camera: chase / far / hood / first-person (driving)<br>chase / first-person / free-fly (on foot; free-fly: WASD, Q/E down/up)<br>
+      <b>M</b> map · <b>H</b> this help · <b>P / Esc</b> pause · <b>F5</b> quick save<br>Gamepad: sticks, RT/LT, A, Y = enter/exit</p></div>
+  </div>
+  <p class="hint">Press H to close</p>
+</div>
+
+<div id="pause" class="hidden overlay panel">
+  <h2>Paused</h2>
+  <button id="btn-resume">Resume</button>
+  <button id="btn-save">Save game</button>
+  <button id="btn-recover">Recover vehicle here</button>
+  <button id="btn-camp">Return to base camp</button>
+  <button id="btn-settings">Settings</button>
+  <button id="btn-help">Controls</button>
+  <button id="btn-quit">Quit to main menu</button>
+</div>
+
+<div id="settings" class="hidden overlay panel">
+  <h2>Settings</h2>
+  <div class="setting"><label for="opt-gfx">Graphics quality</label>
+    <select id="opt-gfx"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option></select></div>
+  <div class="setting"><label for="opt-adaptive">Adaptive resolution</label><input id="opt-adaptive" type="checkbox" /></div>
+  <div class="setting"><label for="opt-webgpu">Prefer WebGPU (applies on reload)</label><input id="opt-webgpu" type="checkbox" /></div>
+  <div class="setting"><label for="opt-sens">Mouse sensitivity</label><input id="opt-sens" type="range" min="0.2" max="3" step="0.1" /></div>
+  <div class="setting"><label for="opt-invert">Invert Y</label><input id="opt-invert" type="checkbox" /></div>
+  <div class="setting"><label for="opt-vol">Volume</label><input id="opt-vol" type="range" min="0" max="1" step="0.05" /></div>
+  <div class="setting"><label for="opt-fps">Show FPS and renderer</label><input id="opt-fps" type="checkbox" /></div>
+  <div class="setting"><label for="opt-server">Multiplayer server</label><input id="opt-server" type="text" placeholder="ws://localhost:2567" /></div>
+  <p id="backend-info" class="hint"></p>
+  <button id="btn-settings-close">Back</button>
+</div>
+
+<div id="loading" class="overlay">
+  <div class="title">OFF-ROAD<span>LEGENDS</span></div>
+  <div class="loadbar"><div id="load-fill"></div></div>
+  <div id="load-label" class="sub">Starting…</div>
+</div>
+
+<div id="menu" class="overlay hidden">
+  <div class="title">OFF-ROAD<span>LEGENDS</span></div>
+  <div class="sub">Free roam · Redstone Valley</div>
+  <button id="btn-continue" class="hidden">Continue</button>
+  <button id="btn-new">New game</button>
+  <button id="btn-mp">Multiplayer free roam</button>
+  <button id="btn-map">World map</button>
+  <button id="btn-menu-settings">Settings</button>
+  <div class="soon">
+    <button disabled title="Planned: Phase 5">Story mode · Phase 5</button>
+    <button disabled title="Planned: Phase 4">Garage · Phase 4</button>
+    <button disabled title="Planned: Phase 3">Character · Phase 3</button>
+    <button disabled title="Planned: Phase 5">Challenges · Phase 5</button>
+  </div>
+  <p id="menu-status" class="menu-note small"></p>
+</div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

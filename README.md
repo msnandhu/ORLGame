@@ -1,44 +1,55 @@
-# OFF-ROAD LEGENDS: Phase 1 prototype
+# OFF-ROAD LEGENDS
 
-Browser off-road game prototype in TypeScript + Three.js (WebGL2). Phase 1 of the 7-phase spec: one terrain, one drivable vehicle, character movement, camera, basic HUD.
+Browser open-world multiplayer off-road game. **Current milestone: Phase 0 (technical foundation), v0.2.0**, built on top of the Phase 1 driving prototype.
 
-## Run
+Stack: TypeScript (strict) · Babylon.js 9 (WebGPU, falling back to WebGL2) · Havok physics + custom 240 Hz drivetrain/tyre simulation · Colyseus 0.18 server-authoritative multiplayer · Vite · Vitest.
+
+## Install and run
+
+Requires Node.js 20+.
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
-npm test           # physics + terrain tests (vitest)
-npm run build      # static build in dist/ (any static host works)
+npm run dev            # client at http://localhost:5173
+npm run dev:server     # multiplayer server at ws://localhost:2567 (optional)
+npm test               # unit, gameplay, Havok and multiplayer integration tests
+npm run build          # typecheck + client build (client/dist) + server bundle (server/dist)
+npm run preview        # serve the production client build
+npm run start:server   # run the bundled server
 ```
 
-## What is in Phase 1
+Single player works without the server. For multiplayer, start the server, then click **Multiplayer free roam** in the main menu (server address is in Settings).
 
-| System | Status |
-|---|---|
-| Terrain | Redstone Valley, 1.024 km × 1.024 km heightfield (2 m grid): rolling hills, rocky massif + rim mountains, river with shallow trail fords, mud flats, rock-crawl ridge with ~220 boulders, ~3,000 trees, dirt trail network, base camp. Frustum-culled 128 m chunks. |
-| Vehicle | Ranger TX4 (fictional 4x4). Custom rigid-body physics at 240 Hz: raycast suspension (spring, bump/rebound damping, bump stops, anti-roll), slip-ratio / slip-angle tyre model with friction circle, per-surface grip / rolling resistance / mud sinkage, torque curve, 6-speed auto or manual, low range, 2H / 4H / 4L, open vs locked axle diffs, brakes, handbrake, engine braking, rev limiter, aero drag, water buoyancy/drag, engine flooding, fuel use, hull collision with ground / boulders / trees / camp buildings, rollover + recovery. |
-| Character | Walk, sprint (stamina), jump, crouch, slopes, wading, collision with trees, boulders, buildings and the vehicle; stand on boulders; procedural walk/run/jump/crouch animation. Enter/exit vehicle with safe exit-point search. |
-| Camera | Third-person orbit (mouse / right stick), zoom, auto-recentre behind vehicle, chase / far / hood modes, terrain clamping, speed FOV. |
-| HUD | Speedometer, tachometer, gear, AUTO/MANUAL, drive mode, diff lock, handbrake, flood warning, fuel, live wheel load/slip, compass, surface type, rotating minimap, full map (M), context prompts. |
-| Menus | Start screen, pause (resume, recover, return to camp, graphics Low/Medium/High, mouse sensitivity, invert Y, volume, FPS), controls help. Settings persist in localStorage. |
-| Audio | Procedural WebAudio engine note (RPM/throttle), tyre slip noise, water splash. No sample files. |
+## Controls
 
-All models, textures and sounds are generated in code. No third-party art assets.
+| | Keyboard / mouse | Gamepad |
+|---|---|---|
+| Move / drive | WASD | Left stick / triggers |
+| Camera | Mouse (click to lock), wheel zooms | Right stick |
+| Enter / exit vehicle | E | Y |
+| Camera mode | V (chase, far, hood, cockpit / on foot: chase, first-person, free) | |
+| Handbrake / jump | Space | A |
+| Sprint / crouch | Shift / C | |
+| 2H / 4H / 4L, diff lock, auto/manual, shift | G, L, T, X/Z | LB/RB shift |
+| Headlights, recover | N, R | |
+| Map, help, pause, quick save | M, H, P or Esc, F5 | Start |
 
-## Code layout
+## Repository layout
 
 ```
-src/core      noise, input (keyboard / mouse / gamepad)
-src/world     terrain data, surfaces, obstacles, raycast
-src/physics   rigid body
-src/vehicle   vehicle spec (data-driven, for Phase 2 upgrades) + simulation
-src/player    character controller
-src/render    terrain mesh, props, vehicle & character models, particles, camera
-src/ui        HUD, styles
-src/audio     engine audio
-tests/        vitest physics and terrain tests
+shared/   @orl/shared  deterministic simulation used by client AND server
+  math/ terrain/ vehicles/ characters/ constants/ types/ schemas/ events/
+client/   @orl/client  Babylon.js game client
+  engine/ (WebGPU→WebGL2)  physics/ (Havok)  rendering/  world/  vehicles/  characters/
+  cameras/  input/  audio/  ui/  multiplayer/  save/  assets/  config/  core/ (app, logger, errors)
+server/   @orl/server  Colyseus server
+  rooms/FreeRoamRoom.ts  validation/movement.ts  app.ts  index.ts
+tests/    unit/  gameplay/  integration/
+documentation/  architecture, known limitations
 ```
 
-## Not in Phase 1 (planned per the spec)
+See [documentation/architecture.md](documentation/architecture.md) and [CHANGELOG.md](CHANGELOG.md).
 
-Garage and modifications, damage model, economy, more vehicles, biomes, streaming of a large world, NPCs, story, missions, multiplayer, accounts and save games. Rendering is WebGL2 only (no WebGPU path yet).
+## Assets
+
+Every model, texture and sound is generated in code. There are no third-party art assets. Vehicle and place names are fictional.

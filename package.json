@@ -1,21 +1,21 @@
 {
-  "name": "offroad-legends",
+  "name": "off-road-legends",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
+  "workspaces": ["shared", "client", "server"],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "three": "^0.180.0"
+    "dev": "npm run dev -w @orl/client",
+    "dev:server": "npm run dev -w @orl/server",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "build": "npm run typecheck && npm run build -w @orl/client && npm run build -w @orl/server",
+    "preview": "npm run preview -w @orl/client",
+    "start:server": "npm run start -w @orl/server"
   },
   "devDependencies": {
-    "@types/three": "^0.180.0",
-    "typescript": "^5.9.3",
-    "vite": "^7.1.12",
-    "vitest": "^3.2.4"
+    "typescript": "5.9.3",
+    "vite": "7.1.12",
+    "vitest": "3.2.4"
   }
 }

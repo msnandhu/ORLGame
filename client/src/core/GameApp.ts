@@ -185,7 +185,13 @@ export class GameApp {
     onProgress(0.9, 'Streaming the island');
     await this.islandR.prime(new Vector3(this.player.pos.x, this.player.pos.y + 2, this.player.pos.z), 25000);
     onProgress(0.95, 'Compiling shaders');
-    await scene.whenReadyAsync();
+    try { await scene.whenReadyAsync(); }
+    catch (e) {
+      // an optional effect (SSAO) that this device or build cannot run must not stop the game: drop it and retry
+      if (!this.env.dropSsao()) throw e;
+      log.warn('app', 'Retrying start-up without SSAO', e);
+      await scene.whenReadyAsync();
+    }
     $('backend-info').textContent = `Renderer: ${this.backend}${this.physics ? ' · Havok physics' : ' · physics props off'} · ${this.terrain.size} m region`;
     log.info('app', `World ready: ${this.backend}, ${scene.meshes.length} meshes`);
     engine.runRenderLoop(() => this.frame());
@@ -714,7 +720,8 @@ export class GameApp {
     }
     // the map opened from the main menu still needs drawing
     if (!this.started && this.worldMap?.isOpen) this.worldMap.update(dt, this.mapState(this.player.pos.x, this.player.pos.z));
-    this.scene.render();
+    try { this.scene.render(); }
+    catch (e) { if (!this.env.dropSsao()) throw e; this.hud?.toast('Ambient occlusion is not supported here and was turned off'); }
     this.input.endFrame();
   }
 

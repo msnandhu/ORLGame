@@ -95,11 +95,24 @@ export class Environment {
       pl.imageProcessing.toneMappingEnabled = true; pl.imageProcessing.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
       pl.imageProcessing.vignetteEnabled = true; pl.imageProcessing.vignetteWeight = 1.2;
       this.pipeline = pl;
-      if (p.ssao && SSAO2RenderingPipeline.IsSupported) {
+      const engine = this.scene.getEngine() as unknown as { createMultipleRenderTarget?: unknown };
+      if (p.ssao && SSAO2RenderingPipeline.IsSupported && typeof engine.createMultipleRenderTarget === 'function' && !Environment.ssaoBroken) {
         this.ssao = new SSAO2RenderingPipeline('ssao', this.scene, { ssaoRatio: 0.5, blurRatio: 0.5 }, [this.camera]);
         this.ssao.radius = 1.5; this.ssao.totalStrength = 1.1; this.ssao.samples = 16; this.ssao.maxZ = 250;
       }
     } catch (e) { log.warn('render', 'Post-processing unavailable on this device', e); }
+  }
+
+  /** Set when SSAO failed on this device: it stays off for the session (the game runs without it). */
+  static ssaoBroken = false;
+  /** Drop SSAO after it failed to build its render targets; returns true if there was one to drop. */
+  dropSsao(): boolean {
+    if (!this.ssao) return false;
+    Environment.ssaoBroken = true;
+    try { this.ssao.dispose(); } catch { /* half-built */ }
+    this.ssao = null;
+    log.warn('render', 'SSAO failed on this device and was turned off');
+    return true;
   }
 
   /** Keep the sun's shadow frustum around the action (for the non-cascaded generator). */

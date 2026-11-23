@@ -2,6 +2,11 @@ import { Engine } from '@babylonjs/core/Engines/engine';
 import { WebGPUEngine } from '@babylonjs/core/Engines/webgpuEngine';
 import type { AbstractEngine } from '@babylonjs/core/Engines/abstractEngine';
 import { log } from '../core/logger';
+// Tree-shaken Babylon only adds engine features that are imported. Multiple render targets are used by the
+// pre-pass renderer behind SSAO (Ultra preset); without these the first frame throws "createMultipleRenderTarget
+// is not a function".
+import '@babylonjs/core/Engines/Extensions/engine.multiRender';
+import '@babylonjs/core/Engines/WebGPU/Extensions/engine.multiRender';
 
 export type Backend = 'WebGPU' | 'WebGL2' | 'WebGL1';
 

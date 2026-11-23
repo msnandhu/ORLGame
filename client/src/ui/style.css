@@ -56,8 +56,48 @@ button:disabled { opacity: 0.5; cursor: wait; }
 #help h3 { color: var(--accent); letter-spacing: 2px; text-transform: uppercase; font-size: 14px; }
 #help p { line-height: 1.8; color: #cfd4d0; }
 .hint { color: var(--muted); font-size: 13px; margin-top: 12px; }
-#bigmap { background: rgba(0,0,0,0.75); }
-#bigmap-canvas { width: min(85vh, 90vw); height: min(85vh, 90vw); border: 2px solid rgba(255,255,255,0.2); }
+#waypoint { color: #ffd23a; }
+/* ---------- world map ---------- */
+#worldmap { position: fixed; inset: 0; z-index: 25; background: #0d2a4a; font-family: 'Segoe UI', system-ui, sans-serif; }
+#wm-canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+.wm-panel { background: linear-gradient(180deg, rgba(14,24,38,0.92), rgba(8,14,24,0.92)); border: 1px solid rgba(120,170,220,0.35); border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,0.45); color: #eef3f8; }
+#wm-title { position: absolute; left: 18px; top: 16px; width: 300px; padding: 14px 16px; }
+.wm-h1 { font-size: 26px; font-weight: 800; letter-spacing: 1px; margin-bottom: 8px; }
+.wm-h2 { font-size: 14px; font-weight: 800; letter-spacing: 1.5px; color: #dce8f4; margin-bottom: 8px; border-bottom: 1px solid rgba(120,170,220,0.25); padding-bottom: 6px; }
+.wm-row { display: flex; justify-content: space-between; font-size: 15px; margin: 4px 0; }
+.wm-row b, .wm-kv b { font-weight: 700; }
+.gold { color: #ffc62a; }
+.wm-bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.12); overflow: hidden; margin-top: 6px; }
+.wm-bar > div { height: 100%; background: linear-gradient(90deg, #f0a020, #ffd23a); }
+#wm-tabs { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
+#wm-tabs button, #wm-bar button { min-width: 0; padding: 8px 14px; font-size: 13px; letter-spacing: 1px; margin: 0; background: rgba(10,18,30,0.85); border-color: rgba(120,170,220,0.35); }
+#wm-tabs button.on { background: var(--accent); border-color: #ffb36a; }
+#wm-side { position: absolute; right: 16px; top: 16px; bottom: 76px; width: 290px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; pointer-events: auto; }
+#wm-info, #wm-legend { padding: 12px 14px; }
+.wm-reg { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-radius: 6px; cursor: pointer; }
+.wm-reg:hover { background: rgba(255,255,255,0.07); }
+.wm-reg b { display: block; font-size: 15px; }
+.wm-reg small { color: #c6d2de; font-size: 12px; }
+.wm-kv { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; margin: 5px 0; color: #c6d2de; }
+.wm-kv b { color: #fff; text-align: right; }
+.wm-key { display: flex; align-items: center; gap: 9px; font-size: 13px; margin: 3px 0; }
+.wm-key span { flex: 1; }
+.wm-key i.ln { display: inline-block; width: 26px; height: 0; margin: 0 -2px; }
+.ln.hw { border-top: 4px solid #f5a623; } .ln.rd { border-top: 3px solid #d9d4ca; } .ln.tr { border-top: 2px dashed #f0a040; }
+.ln.rv { border-top: 2px dashed #6cc0ff; } .ln.bd { height: 8px !important; border: 2px solid #c8e84a; border-radius: 5px; box-shadow: 0 0 6px #c8e84a; }
+.wm-note { margin-top: 10px; font-size: 12px; line-height: 1.45; color: #aab8c6; }
+#wm-inset { position: absolute; left: 18px; bottom: 76px; width: 240px; height: 196px; border-radius: 10px; border: 2px solid rgba(120,170,220,0.45); box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+#wm-compass { position: absolute; right: 320px; bottom: 80px; width: 120px; height: 120px; pointer-events: none; }
+#wm-bar { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; padding: 6px; background: rgba(6,12,20,0.75); border-radius: 10px; border: 1px solid rgba(120,170,220,0.3); flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 20px); }
+#wm-bar b { color: #ffc62a; font-weight: 700; margin-right: 4px; }
+#wm-tip { position: fixed; padding: 8px 10px; font-size: 13px; line-height: 1.5; pointer-events: none; max-width: 250px; }
+#wm-tip small { display: block; color: #c6d2de; }
+#wm-tip .built { color: #7cf08a; } #wm-tip .planned { color: #ffc062; }
+#wm-loading { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #cfe0f0; letter-spacing: 2px; }
+@media (max-width: 900px) {
+  #wm-side { width: 220px; } #wm-title { width: 220px; } #wm-inset { display: none; } #wm-compass { right: 240px; }
+  #wm-tabs { top: auto; bottom: 64px; } .wm-h1 { font-size: 20px; }
+}
 @media (max-width: 700px) {
   .title { font-size: 44px; } .title span { font-size: 50px; }
   #veh-hud { transform: scale(0.7); transform-origin: bottom right; }

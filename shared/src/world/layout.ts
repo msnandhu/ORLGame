@@ -48,7 +48,7 @@ export interface Building {
 export interface ParkingSpot { x: number; z: number; heading: number; settlement: string }
 
 export const SETTLEMENTS: Settlement[] = [
-  { id: 'halden', name: 'Halden City', kind: 'city', cx: 830, cz: 120, hx: 225, hz: 225, xs: [], zs: [], y: 0 },
+  { id: 'halden', name: 'Plain City', kind: 'city', cx: 830, cz: 120, hx: 225, hz: 225, xs: [], zs: [], y: 0 },
   { id: 'millbrook', name: 'Millbrook', kind: 'town', cx: -770, cz: -700, hx: 150, hz: 140, xs: [], zs: [], y: 0 },
   { id: 'ashby', name: 'Ashby Hollow', kind: 'village', cx: -420, cz: 860, hx: 115, hz: 100, xs: [], zs: [], y: 0 },
 ];
@@ -75,7 +75,7 @@ export const ROAD_DEFS: RoadDef[] = [
   { id: 'r-town', name: 'Millbrook Road', kind: 'road', curved: true, ctrl: [[-12, -48], [55, -280], [-90, -520], [-380, -650], [town.cx + town.hx, -700]] },
   { id: 'r-village', name: 'Ashby Lane', kind: 'road', curved: true, ctrl: [[-36, 30], [-70, 210], [-160, 430], [-300, 660], [village.cx, village.cz - village.hz]] },
   // highway links
-  { id: 'l-city', name: 'Halden Link', kind: 'road', ctrl: [[city.cx + city.hx, 120], [1135, 120]] },
+  { id: 'l-city', name: 'Plain City Link', kind: 'road', ctrl: [[city.cx + city.hx, 120], [1135, 120]] },
   { id: 'l-town', name: 'Millbrook Link', kind: 'road', ctrl: [[town.cx, town.cz - town.hz], [town.cx, -1000]] },
   { id: 'l-village', name: 'Ashby Link', kind: 'road', ctrl: [[village.cx, village.cz + village.hz], [-420, 1085]] },
 ];

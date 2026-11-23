@@ -4,10 +4,11 @@ const $ = (id: string) => document.getElementById(id)!;
 
 /** HTML/canvas HUD: compass, minimap, tachometer, speed, gear, drive indicators, fuel, wheel telemetry. */
 export class Hud {
-  private mapImg: HTMLCanvasElement;
+  readonly mapImg: HTMLCanvasElement;
+  /** map marker the player is heading to (set by the world map) */
+  waypoint: { x: number; z: number; id: number } | null = null;
   private mini = ($('minimap') as HTMLCanvasElement).getContext('2d')!;
   private tacho = ($('tacho') as HTMLCanvasElement).getContext('2d')!;
-  private big = ($('bigmap-canvas') as HTMLCanvasElement).getContext('2d')!;
   private toastTimer = 0;
   private dmg = ($('damage-canvas') as HTMLCanvasElement).getContext('2d')!;
   private dmgTimer = 0;
@@ -76,7 +77,13 @@ export class Hud {
     $('foot-hud').classList.toggle('hidden', s.inVehicle);
     ($('stamina-fill') as HTMLElement).style.width = `${s.stamina * 100}%`;
     if (s.inVehicle) this.drawVehicle(s.v);
-    if (!$('bigmap').classList.contains('hidden')) this.drawBig(s.px, s.pz, bearing, s.vx, s.vz);
+    const wp = $('waypoint');
+    if (this.waypoint) {
+      const dx = this.waypoint.x - s.px, dz = this.waypoint.z - s.pz, d = Math.hypot(dx, dz);
+      const brg = ((Math.atan2(dx, -dz) * 180 / Math.PI) + 360) % 360, rel = ((brg - bearing + 540) % 360) - 180;
+      wp.textContent = `${rel < -20 ? '◀ ' : ''}Marker ${this.waypoint.id} · ${d >= 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m'}${rel > 20 ? ' ▶' : ''}`;
+      wp.classList.remove('hidden');
+    } else wp.classList.add('hidden');
   }
 
   private drawMini(px: number, pz: number, bearing: number, vx: number, vz: number, inVeh: boolean) {
@@ -97,31 +104,19 @@ export class Hud {
     for (const p of t.fuelPumps) { const [fx, fz] = pt(p.x, p.z); ctx.fillRect(fx - 2, fz - 2, 4, 4); }
     if (!inVeh) { const [a, b] = pt(vx, vz); ctx.fillStyle = '#fff'; ctx.fillRect(a - 2.5, b - 2.5, 5, 5); }
     ctx.restore();
+    // map marker: on the minimap when in range, otherwise pinned to the rim in its direction
+    if (this.waypoint) {
+      const dx = this.waypoint.x - px, dz = this.waypoint.z - pz, a = -bearing * Math.PI / 180;
+      let sx = (dx * Math.cos(a) - dz * Math.sin(a)) * (W / range), sy = (dx * Math.sin(a) + dz * Math.cos(a)) * (W / range);
+      const r = Math.hypot(sx, sy), lim = W / 2 - 9; if (r > lim) { sx *= lim / r; sy *= lim / r; }
+      ctx.fillStyle = '#ffd23a'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(W / 2 + sx, W / 2 + sy - 7); ctx.lineTo(W / 2 + sx + 6, W / 2 + sy); ctx.lineTo(W / 2 + sx, W / 2 + sy + 7); ctx.lineTo(W / 2 + sx - 6, W / 2 + sy); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
     // player arrow (always points up = view direction)
     ctx.fillStyle = '#e0782a'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(W / 2, W / 2 - 9); ctx.lineTo(W / 2 + 6, W / 2 + 7); ctx.lineTo(W / 2, W / 2 + 3); ctx.lineTo(W / 2 - 6, W / 2 + 7); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
     const a = -bearing * Math.PI / 180; ctx.fillText('N', W / 2 + Math.sin(a) * -88 * -1, W / 2 - Math.cos(a) * 88 + 4);
-  }
-
-  private drawBig(px: number, pz: number, bearing: number, vx: number, vz: number) {
-    const ctx = this.big, t = this.terrain, W = 720;
-    ctx.drawImage(this.mapImg, 0, 0, W, W);
-    const pt = (x: number, z: number) => [(x + t.half) / t.size * W, (z + t.half) / t.size * W];
-    ctx.fillStyle = '#ff4a3a';
-    for (const p of t.fuelPumps) { const [fx, fz] = pt(p.x, p.z); ctx.fillRect(fx - 3, fz - 3, 6, 6); }
-    ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.75)';
-    for (const s of t.settlements) { const [sx, sz] = pt(s.cx, s.cz - s.hz); ctx.strokeText(s.name, sx, sz - 8); ctx.fillStyle = '#fff'; ctx.fillText(s.name, sx, sz - 8); }
-    const hw = t.roads.find(r => r.kind === 'highway');
-    if (hw) { const q = hw.pts[Math.floor(hw.pts.length * 0.3)], [hx, hz] = pt(q[0], q[1]); ctx.font = '12px sans-serif'; ctx.strokeText(hw.name, hx, hz + 16); ctx.fillStyle = '#f0d58a'; ctx.fillText(hw.name, hx, hz + 16); }
-    ctx.textAlign = 'left'; ctx.lineWidth = 1;
-    const [cx, cz] = pt(0, 0); ctx.strokeStyle = '#fff'; ctx.strokeRect(cx - 14, cz - 14, 28, 28); ctx.fillStyle = '#fff'; ctx.font = '13px sans-serif'; ctx.fillText('Base camp', cx + 18, cz + 4);
-    const [rx, rz] = pt(190, -60); ctx.fillText('Rock-crawl ridge', rx - 40, rz - 75);
-    const [a, b] = pt(vx, vz); ctx.fillStyle = '#fff'; ctx.fillRect(a - 4, b - 4, 8, 8);
-    const [x, z] = pt(px, pz);
-    ctx.save(); ctx.translate(x, z); ctx.rotate(bearing * Math.PI / 180);
-    ctx.fillStyle = '#e0782a'; ctx.strokeStyle = '#000'; ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(8, 9); ctx.lineTo(0, 4); ctx.lineTo(-8, 9); ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.restore();
   }
 
   private drawVehicle(v: Vehicle) {

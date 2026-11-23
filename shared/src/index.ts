@@ -18,3 +18,4 @@ export * from './gameplay/interaction';
 export * from './npc/npc';
 export * from './world/layout';
 export * from './world/traffic';
+export * from './world/island';

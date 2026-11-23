@@ -13,6 +13,7 @@
   <div id="topleft">
     <div id="compass"><div id="compass-strip"></div><div id="compass-mark"></div></div>
     <div id="surface" class="chip">Grass</div>
+    <div id="waypoint" class="chip hidden"></div>
   </div>
   <canvas id="minimap" width="200" height="200"></canvas>
   <div id="net" class="chip hidden"></div>
@@ -45,7 +46,6 @@
   <div id="fps"></div>
 </div>
 
-<div id="bigmap" class="hidden overlay"><canvas id="bigmap-canvas" width="720" height="720"></canvas><div class="hint">M to close · Orange arrow = you · White square = vehicle · Red = fuel · Blue = other players</div></div>
 
 <div id="help" class="hidden overlay panel">
   <h2>Controls</h2>
@@ -71,7 +71,7 @@
   <button id="btn-recover">Recover vehicle here</button>
   <button id="btn-camp">Tow vehicle home</button>
   <div class="travel"><span>Fast travel</span>
-    <button id="btn-go-camp">Camp</button><button id="btn-go-city">Halden City</button><button id="btn-go-town">Millbrook</button><button id="btn-go-village">Ashby Hollow</button>
+    <button id="btn-go-camp">Camp</button><button id="btn-go-city">Plain City</button><button id="btn-go-town">Millbrook</button><button id="btn-go-village">Ashby Hollow</button>
   </div>
   <button id="btn-settings">Settings</button>
   <button id="btn-help">Controls</button>

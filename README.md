@@ -41,21 +41,24 @@ Single player works without the server. For multiplayer, start the server, then 
 | Refuel (hold, at any pump) | F | |
 | Repair kit (stopped) / workshop repair in the camp shed | K / F | |
 | Headlights, recover | N, R | |
-| Map, help, pause, quick save | M, H, P or Esc, F5 | Start |
+| World map, help, pause, quick save | M, H, P or Esc, F5 | Start |
+| On the world map: zoom, pan, set / remove marker | Wheel or + / −, drag, click / right-click or Delete | |
+| On the world map: whole island / regions, legend, region details, centre on me | 0, 1–4, L, R, C | |
 
 ## Repository layout
 
 ```
 shared/   @orl/shared  deterministic simulation used by client AND server
   math/ terrain/ vehicles/ characters/ (controller, appearance, enter/exit)  gameplay/ (interaction)  npc/ (NPCs, dialogue)
-  world/ (road network and settlement layout, AI traffic)
+  world/ (island: regions, places, roads, rivers, elevation; valley road network and settlements; AI traffic)
   constants/ types/ schemas/ events/
 client/   @orl/client  Babylon.js game client
   engine/ (WebGPU→WebGL2)  physics/ (Havok)  rendering/  world/ (terrain, roads, buildings, traffic)  vehicles/  characters/
-  cameras/  input/  audio/  ui/  multiplayer/  save/  assets/  config/  core/ (app, logger, errors)
+  cameras/  input/  audio/  ui/ (HUD, world map + map worker)  multiplayer/  save/  assets/  config/  core/ (app, logger, errors)
 server/   @orl/server  Colyseus server
   rooms/FreeRoamRoom.ts  validation/movement.ts  app.ts  index.ts
 tests/    unit/  gameplay/  integration/
+tools/    fit-island.ts (fits island scale and region areas)
 documentation/  architecture, known limitations
 ```
 

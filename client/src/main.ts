@@ -63,7 +63,7 @@ $('btn-mp').addEventListener('click', async () => {
   if (ok) { status.textContent = ''; play(false); app.hud.toast('Joined free roam server'); }
   else status.textContent = `Could not reach ${url}. Start one with "npm run dev:server", or set the address in Settings.`;
 });
-$('btn-map').addEventListener('click', () => $('bigmap').classList.toggle('hidden'));
+$('btn-map').addEventListener('click', () => app.toggleMap());
 $('btn-menu-settings').addEventListener('click', () => $('settings').classList.remove('hidden'));
 
 // ---------- pause menu ----------
@@ -95,7 +95,7 @@ vol.addEventListener('input', () => { settings.volume = +vol.value; app.audio.se
 fps.addEventListener('change', () => { settings.showFps = fps.checked; saveSettings(settings); });
 server.addEventListener('change', () => { try { localStorage.setItem(SERVER_KEY, server.value.trim()); } catch { /* storage blocked */ } });
 $('btn-settings-close').addEventListener('click', () => $('settings').classList.add('hidden'));
-for (const id of ['help', 'bigmap']) $(id).addEventListener('click', () => $(id).classList.add('hidden'));
+for (const id of ['help']) $(id).addEventListener('click', () => $(id).classList.add('hidden'));
 
 // ---------- boot ----------
 const fill = $('load-fill'), label = $('load-label');

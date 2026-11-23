@@ -81,6 +81,15 @@ The vehicle spec's `look.seat` gives the driver's hip point. The door used for e
   - `TrafficRenderer` keeps a small pool of merged, lite car models and assigns them to the nearest cars.
   - `TerrainRenderer` keeps the coarse LOD for every chunk and streams full-detail chunks near the camera.
 
+## Island and world map (v0.7)
+
+- **Island** (`shared/src/world/island.ts`) is authored in the pixel space of the reference world map (north up) and mapped into world metres, with Plain City on the detailed valley. The vertical axis is stretched by 1.3 because the reference is drawn in perspective.
+- **Regions** are a power diagram of seed points per region, with borders warped by low-frequency noise. The coastline is the authored polygon plus fractal noise, read from a 160 m signed-distance grid. `tools/fit-island.ts` fits the overall scale (land = 1,170 km²) and the per-region weights (each region at its stated area) and prints `ISLAND_FIT`.
+- **Elevation** (`landHeight`) blends a landform per region by soft region weights: farmland plains, ridged jungle hills, a hill massif with a cone peak, and snow mountains rising inland. Glacier Peak is a ridged cone pinned to 4,872 m. Lakes take a level just under their lowest shore. Rivers sample the land along their course, smooth it and take a running minimum, so the water never rises downstream. A drop steeper than 1 in 3 of 12 m or more becomes a waterfall. `heightAt` cuts the lakes and river channels in, and `waterAt` gives the water surface (sea, lake or river).
+- **Places** carry kind, region, gang size and a `built` flag. A place that lands across a fitted border is walked into its region. Places off the road network get a winding trail to the nearest road.
+- Everything is a pure function of position, so the client, the server and the map worker all build the same island. It is also what stage 2 needs to generate terrain chunks on demand.
+- **World map** (`client/src/ui/worldmap/`): `mapWorker.ts` renders shaded-relief imagery for any rectangle, coloured from region weights, land cover, snow line, water and coast. It also computes region outlines (marching squares), region statistics and a 250 m region grid. `WorldMap.ts` draws the imagery, a viewport-sized detail render when zoomed in, and the valley's own detailed map. On top it draws vector rivers, roads, outlines, places, labels, markers and the player. Markers and explored cells persist in `localStorage`.
+
 ## Coordinate frame
 
 Right-handed, Y up, +Z forward for vehicles. The Babylon scene uses `useRightHandedSystem = true` so simulation values are used without conversion. The Havok heightfield expects `data[(N-1-z)*N + x]`.
@@ -103,7 +112,9 @@ Saves go to browser `localStorage` (`orl.save.slot1`, `orl.settings.v2`, and the
 - Remote players' animation is inferred from their motion: crouching and landing recovery are not sent over the network.
 - Hands do not grip the steering wheel exactly (the seated pose approximates it). Climbing in passes through the door rather than opening it, because the doors are not separate parts.
 - Only one NPC (the camp mechanic) exists. Garage and mission interactions arrive with Phase 4 (garage) and Phase 5 (missions); the interaction system and dialogue actions are where they plug in.
-- The world is one 2.56 km region. Full-detail terrain is streamed around the camera, but the heightfield, colliders and coarse terrain for the whole region are built at load. There is no floating origin. The spec's 500 km world needs world-chunk streaming of the data itself.
+- Only the 2.56 km valley around Plain City is built in 3D. The rest of the 1,170 km² island exists as data (elevation, water, regions, places, roads) and on the world map, but it is not streamed into the 3D world yet (stage 2). There is no floating origin yet.
+- The reference map gives the total area as 1,370 km², but its four regions add up to 1,170 km². The island uses 1,170 km².
+- Region elevation ranges are measured, so they include coastline. For example, the Snow Region reads 2–4,872 m because its cliffs reach the sea, not 1,800–4,872 m as on the reference.
 - Traffic is local to each client: in multiplayer every player sees their own traffic, and remote players' cars pass through it. Traffic cars are kinematic, so hitting one is like hitting a wall. It stops but is not pushed. They switch lanes instantly at junctions instead of following a turning arc, and there are no traffic lights.
 - Fast travel is off in multiplayer (the server would reject the jump).
 - Buildings are boxes with procedural facade textures and cannot be entered. Interiors, shops, garages and NPCs in town are not built yet.

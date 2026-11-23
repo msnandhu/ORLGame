@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.0: The island and its world map (stage 1 of the four-region world)
+
+- **The island.** The world is now laid out as an island of **1,170 km²** after your reference maps: the **Snow Region** in the north (280 km², LV 20–40), the **Deep Forest Region** in the west (320 km², LV 15–35), the **Hill Region** in the east (120 km², LV 10–20) and the **Plain Region** in the south (450 km², LV 1–20).
+  - Region areas are real: the coastline scale and the region borders are fitted so that sampling the island every 220 m gives each region within 0.3% of its stated area (`tools/fit-island.ts`). A test checks this every run.
+  - The island has its own elevation model: farmland plains at 10–60 m, rolling jungle hills, a hill massif with a snow cap, and the snow mountains. **Glacier Peak** is exactly 4,872 m. Three rivers flow downhill to the sea (they never run uphill), with waterfalls where they drop steeply, and four lakes (one frozen).
+  - **53 places** from your maps are placed in their regions: four gang bases (with their member counts), villages, the city hub, garages, fuel, race tracks and challenges, explorer camp, lookouts, labs, caves, the region gate, cable car station, rescue outpost, ruins, wildlife zone and more. Highways, regional roads and off-road trails connect them, so every place can be reached.
+  - **Plain City** (formerly Halden City) is the Main City Hub. The detailed 2.56 km valley with base camp, Millbrook and Ashby Hollow sits in the middle of the Plain Region.
+- **World map** (M, or Map in the pause menu). It replaces the old square map.
+  - Whole-island view and a view for each region (tabs or keys 0–4), with region outlines that glow in each region's colour.
+  - Zoom with the mouse wheel or + / −, and drag to pan. Double-click zooms in. The terrain image is rendered in a background worker from the same elevation and water functions as the world, and sharpens when you zoom in. Inside the detailed valley it shows every street and building.
+  - **Markers:** click to set one (up to 9) and right-click or Delete to remove one. The newest marker is your waypoint: the HUD shows its distance and direction under the compass, and the minimap shows it (pinned to the rim when it is out of range).
+  - Region details (R): area and elevation range (both measured from the terrain), terrain type, habitat, difficulty, recommended level and key locations counted from the places on the map. Legend (L), world inset with the current view, compass and scale bar.
+  - **Exploration progress** is real: the island is divided into 250 m cells, and the cells you pass within 300 m of are marked explored and saved in the browser.
+  - Hovering over a place shows its name, kind, region, distance and whether it is built. Places that are not built in 3D yet are drawn with a dashed ring.
+
+**What is playable now and what is planned.** You can drive in the 2.56 km valley around Plain City, as before. The rest of the island is mapped, with real terrain data, places and roads, but it is not yet streamed into the 3D world. That is stage 2 (streamed terrain for the whole island, drivable everywhere). Stage 3 builds the places themselves.
+
 ## 0.6.0: Towns, highways and road cars
 
 - **A bigger world.** The map grows from 1 km to 2.56 km across (6.6 km²). The off-road valley, trails and rock-crawl ridge stay in the middle. Farmland plains open up beyond the valley ring, and the mountains now ring the outer edge with passes where the roads go through.

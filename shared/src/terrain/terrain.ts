@@ -12,7 +12,7 @@ export interface Tree { x: number; z: number; y: number; r: number; h: number; k
 
 /**
  * Terrain data for the region: Redstone Valley (the off-road country around base camp) inside a 2.56 km
- * square with Halden City, Millbrook town and Ashby Hollow village, a highway loop and connecting roads.
+ * square with Plain City, Millbrook town and Ashby Hollow village, a highway loop and connecting roads.
  * Pure data, no rendering.
  */
 export class Terrain {

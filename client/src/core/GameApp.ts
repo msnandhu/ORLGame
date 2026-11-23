@@ -5,7 +5,7 @@ import { Color3 } from '@babylonjs/core/Maths/math.color';
 import {
   Terrain, Vehicle, Character, VEHICLES, vehicleById, DRIVING_MODE_PROFILES, nextDrivingMode, repairFull, repairWithKit, overallDamage, WORLD_SEED, PHYSICS_HZ, Vec3, Quat,
   VehicleTransition, pickInteractable, Npc, CAMP_MECHANIC, DialogueSession, statureOf, decodeAppearance, DEFAULT_MALE,
-  Traffic, isRoadCar, PELLA, CORVAN, HALCYON, STRIX_R2, VANTA_GT, SOLENNE_GT,
+  Traffic, Island, isRoadCar, PELLA, CORVAN, HALCYON, STRIX_R2, VANTA_GT, SOLENNE_GT,
   type Settings, type TrafficObstacle, type PlayerTransform, type ImpactEvent, type Interactable, type CharacterAppearance, type DoorPose,
 } from '@orl/shared';
 import { createEngine, type Backend } from '../engine/createEngine';
@@ -29,6 +29,7 @@ import { CharacterStore } from '../save/CharacterStore';
 import { CameraRig } from '../cameras/CameraRig';
 import { Input } from '../input/Input';
 import { Hud } from '../ui/Hud';
+import { WorldMap } from '../ui/worldmap/WorldMap';
 import { EngineAudio } from '../audio/EngineAudio';
 import { NetClient } from '../multiplayer/NetClient';
 import { SaveGame } from '../save/SaveGame';
@@ -67,7 +68,7 @@ export class GameApp {
   vView!: VehicleView; cView!: CharacterView; rig!: CameraRig; env!: Environment;
   terrainR!: TerrainRenderer; props!: PropsRenderer; grass!: GrassField; scenery!: Scenery; particles!: WheelParticles;
   roads!: RoadRenderer; buildings!: BuildingRenderer; traffic!: Traffic; trafficR!: TrafficRenderer;
-  hud!: Hud; input!: Input; audio = new EngineAudio(); net = new NetClient();
+  hud!: Hud; input!: Input; island!: Island; worldMap!: WorldMap; private mapPaused = false; audio = new EngineAudio(); net = new NetClient();
   private remoteViews = new Map<string, { v: VehicleView; c: CharacterView; sim: Vehicle; ch: Character; vid: string; look: string }>();
   inVehicle = false; paused = false; started = false;
   /** the player's look (character creator) */
@@ -140,6 +141,11 @@ export class GameApp {
     this.applyGraphics();
     this.input = new Input(this.canvas);
     this.hud = new Hud(this.terrain);
+    this.island = new Island();
+    this.worldMap = new WorldMap(this.island, { img: this.hud.mapImg, half: this.terrain.half });
+    this.worldMap.onCloseRequest = () => this.toggleMap();
+    this.worldMap.onMarkersChanged = () => { this.hud.waypoint = this.worldMap.waypoint; };
+    this.hud.waypoint = this.worldMap.waypoint;
     this.rig.sensitivity = this.settings.mouseSensitivity; this.rig.invertY = this.settings.invertY; this.audio.setVolume(this.settings.volume);
     this.net.onCorrection = c => { this.cancelInteraction(); const p = this.inVehicle ? null : this.player; if (p) p.place(c.x, c.z); else this.vehicle.reset(c.x, c.z, this.vehicle.body.quat.yaw()); this.hud.toast('Position corrected by server'); };
     this.net.onChat = c => this.hud.toast(`${c.from}: ${c.text}`);
@@ -505,6 +511,8 @@ export class GameApp {
     this.env.follow(new Vector3(focus.x, focus.y, focus.z));
     if (this.started) {
       this.hud.kits = this.repairKits;
+      this.worldMap.trackExploration(focus.x, focus.z, dt);
+      this.worldMap.update(dt, this.mapState(focus.x, focus.z));
       this.hud.update(dt, { px: focus.x, pz: focus.z, viewYaw: this.rig.viewYaw, inVehicle: this.inVehicle, v, vx: v.body.pos.x, vz: v.body.pos.z, vHeading: v.body.quat.yaw(), stamina: this.player.stamina, surface: T.surfaceAt(focus.x, focus.z) });
       const net = $('net');
       net.classList.toggle('hidden', this.net.status === 'offline');
@@ -619,10 +627,30 @@ export class GameApp {
   private handleGlobalKeys() {
     const inp = this.input;
     if (this.dialogue && inp.wasPressed('Escape')) { this.closeDialogue(); return; }
+    if (this.worldMap.isOpen) { if (inp.wasPressed('KeyM') || inp.wasPressed('Escape') || inp.padPressed.has(9)) this.toggleMap(); return; }
     if (inp.wasPressed('KeyP') || (inp.wasPressed('Escape') && !inp.locked) || inp.padPressed.has(9)) this.setPaused(!this.paused);
     if (inp.wasPressed('KeyH')) $('help').classList.toggle('hidden');
-    if (inp.wasPressed('KeyM')) $('bigmap').classList.toggle('hidden');
+    if (inp.wasPressed('KeyM')) this.toggleMap();
     if (inp.wasPressed('F5')) this.save();
+  }
+  /** The world map pauses single-player driving while it is open (online, the world keeps running). */
+  toggleMap() {
+    if (!this.started) return;
+    if (this.worldMap.isOpen) {
+      this.worldMap.close();
+      if (this.mapPaused) { this.paused = false; this.audio.start(); }
+      this.mapPaused = false;
+      return;
+    }
+    if (this.paused) this.setPaused(false);
+    const focus = this.inVehicle ? this.vehicle.body.pos : this.player.pos;
+    document.exitPointerLock?.();
+    if (this.net.status !== 'online') { this.paused = true; this.mapPaused = true; this.audio.suspend(); }
+    this.worldMap.open(this.mapState(focus.x, focus.z));
+  }
+  private mapState(x: number, z: number) {
+    const bearing = ((180 - (this.rig.viewYaw * 180) / Math.PI) % 360 + 360) % 360;
+    return { x, z, bearing, vx: this.vehicle.body.pos.x, vz: this.vehicle.body.pos.z, inVeh: this.inVehicle };
   }
   setPaused(p: boolean) {
     this.paused = p; $('pause').classList.toggle('hidden', !p);

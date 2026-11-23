@@ -1,6 +1,8 @@
 import type { DrivingMode } from './modes';
 export type VehicleCategory = 'expedition' | 'rock-crawler' | 'racing' | 'common' | 'luxury';
-export type TyreType = 'all-terrain' | 'road' | 'performance';
+export type TyreType = 'all-terrain' | 'road' | 'performance' | 'mud' | 'rock' | 'snow';
+export type PaintFinish = 'gloss' | 'metallic' | 'pearl' | 'matte';
+export type Livery = 'stock' | 'none' | 'stripes';
 
 /** Visual description used by the client to build the procedural model (no art in the sim). */
 export interface VehicleLook {
@@ -10,6 +12,16 @@ export interface VehicleLook {
   snorkel: boolean;
   /** driver's hip point (vehicle frame, metres from the CoM; +X is the driver's side) */
   seat: [number, number, number];
+  // ---- set by the garage (applyBuild); absent on a factory vehicle ----
+  finish?: PaintFinish;
+  livery?: Livery;
+  rimColor?: [number, number, number];
+  /** fitted option id per part slot (see garage/parts.ts) */
+  fit?: Record<string, string>;
+  /** engine sound gain from exhaust and turbo parts */
+  sound?: number;
+  /** extra driving lamps lit with the headlights */
+  beams?: number;
 }
 
 /** Data-driven vehicle definition. Every handling number lives here, so a new vehicle is new data, not new code. */
@@ -51,6 +63,8 @@ export interface VehicleSpec {
   tireLongStiffness: number; tireLatStiffness: number;
   intakeHeight: number;         // y of air intake relative to CoM (snorkel raises it)
   fuelCapacity: number;
+  /** radiator capacity multiplier (1 = factory); tuned engines run hotter, a heavy-duty radiator cooler */
+  coolingCapacity?: number;
 }
 
 /** "Ranger TX4" — fictional mid-size 4x4 pickup/wagon. Numbers modeled on a typical 3.0 L turbo-diesel 4x4. */

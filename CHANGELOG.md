@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.0: Phase 4, garage and customization
+
+- **Garage.** A 3D workshop bay with a turntable: inspect any vehicle from every angle (drag, wheel to zoom, lamps on/off). Open it from the main menu, with **E** in the camp shed on foot, or **U** when you stop a vehicle in the shed or at the island's Service Garage and Mountain Garage.
+- **Vehicle catalogue.** All eight vehicles have list prices ($14,500 Pella to $240,000 Solenne GT). A new career starts with $25,000 and the Ranger TX4. Buy vehicles in the garage, where they wait where they are parked; sell them back for 60% of the price plus 40% of what you spent on them. Vehicles you don't own are locked: E tells you the price.
+- **Parts: 21 slots, 68 options, every one with a visible or physical effect.** Previewed live on the turntable with the change in figures before you pay.
+  - *Body (off-roaders):* tube nudge bar or full bull bar (less front damage, more weight), expedition rack or cargo basket, roof light bar or bar plus bumper pods (real lamps at night), side steps or rock sliders, snorkel (raises the air intake: wade deeper or flood the engine without it). *Road cars:* wing delete, ducktail, GT wing (downforce and drag), carbon splitter.
+  - *Wheels:* eight rim styles (forged rims lighten the wheels, steel and beadlocks add weight), five rim finishes, six tyre compounds (all-terrain, mud-terrain, rock, studded winter, road, performance) with their own grip on each of nine surfaces, and +2 or +4 inch tyres (clearance, taller gearing, heavier wheels).
+  - *Suspension:* 50 or 100 mm lift kits (more clearance and travel, higher centre of mass) or lowering springs on road cars, soft or stiff springs, sport or long-travel dampers, soft or stiff anti-roll bars.
+  - *Engine:* Stage 1 and Stage 2 maps, hybrid turbo (top-end torque, a little lag), sport exhaust (louder, lighter), cold-air intake, heavy-duty radiator, long-range tank. Tuned engines really run hotter; the radiator really cools them.
+- **Paint shop.** Twenty swatches or any colour, five finishes (factory, gloss, metallic, pearl, matte), accent colour, and livery (factory, plain, twin stripes).
+- **Upgrade economy.** Paid workshop repairs (scaled by the vehicle's price and damage; a repair you can't afford takes what you have, so nobody is stranded), paid repair kits ($180) and fuel ($1.65/L). Every place on the island pays a one-off finder's fee ($1,000 to $5,000) the first time you get within 150 m. Money shows under the minimap.
+- **Server-validated online.** In multiplayer the server owns the career: the client asks, the server prices it from the shared catalogue and decides, a resent transaction is answered but never charged twice, discoveries are checked against the server's last accepted position, and other players see your build because the server derives it from what you paid for. Online careers last for the session until accounts arrive in Phase 6.
+- The vehicle simulation takes a re-built spec in place (`Vehicle.retune`), so garage changes apply without losing position, fuel or damage. The server's speed limit was raised to 125 m/s for fully tuned cars.
+- 17 new tests: physics effects of the parts (Stage 2 + turbo Ranger 0–80 km/h 5.83 s → 4.80 s, 100 mm lift +0.1 m measured clearance, mud tyres 1.1× further in deep mud, tuned engine hotter and the radiator cooler), build codes, economy rules, replay protection, hand-edited saves, and a real-server garage test.
+
 ## 0.9.0: Cars inspired by real-world cars
 
 Every vehicle has a new model: smooth, curved body panels built the way real car bodies are surfaced (rounded shoulders, tumblehome, tapered noses and tails, true wheel-arch openings) instead of flat-sided boxes. All names and designs are original, with no real makes' badges, logos or signature grilles.

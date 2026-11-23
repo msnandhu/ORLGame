@@ -1,11 +1,13 @@
 import { Client, type Room } from '@colyseus/sdk';
-import { ROOM_NAME, MESSAGE, NETWORK_TICK_HZ, type PlayerTransform } from '@orl/shared';
+import { ROOM_NAME, MESSAGE, NETWORK_TICK_HZ, sanitizeCareer, type PlayerTransform, type Career, type GarageRequest } from '@orl/shared';
 import { log } from '../core/logger';
 
 export interface RemotePlayer {
   id: string; name: string; mode: 'foot' | 'vehicle'; vid: string;
   /** appearance code (server-sanitized) */
   look: string;
+  /** vehicle build code (derived by the server from what the player owns) */
+  bld: string;
   /** buffered server snapshots for interpolation */
   buf: { at: number; s: PlayerTransform }[];
 }
@@ -21,6 +23,13 @@ export class NetClient {
   status: 'offline' | 'connecting' | 'online' | 'error' = 'offline';
   onCorrection: (c: { x: number; y: number; z: number; reason: string }) => void = () => {};
   onChat: (c: { from: string; text: string }) => void = () => {};
+  /** the server-owned career while online (null until it arrives) */
+  career: Career | null = null;
+  onCareer: (c: Career) => void = () => {};
+  /** the session ended: the server's career no longer applies */
+  onCareerLost: () => void = () => {};
+  private pending = new Map<string, (r: { ok: boolean; msg: string }) => void>();
+  private txnSeq = 0;
   private sendAcc = 0;
   readonly interpDelayMs = 100;
 
@@ -33,22 +42,28 @@ export class NetClient {
       log.info('net', `Joined ${ROOM_NAME} ${room.roomId} as ${room.sessionId}`);
       room.onMessage(MESSAGE.CORRECTION, (c: { x: number; y: number; z: number; reason: string }) => { log.warn('net', `Server correction: ${c.reason}`); this.onCorrection(c); });
       room.onMessage(MESSAGE.CHAT, (c: { from: string; text: string }) => this.onChat(c));
-      room.onStateChange((state: { players: Map<string, PlayerTransform & { name: string; look?: string }> }) => {
+      room.onMessage(MESSAGE.CAREER, (c: unknown) => { this.career = sanitizeCareer(c); this.onCareer(this.career); });
+      room.onMessage(MESSAGE.GARAGE_RESULT, (m: { txn: string; ok: boolean; msg: string; career: unknown }) => {
+        this.career = sanitizeCareer(m.career); this.onCareer(this.career);
+        const done = this.pending.get(m.txn); this.pending.delete(m.txn); done?.({ ok: m.ok, msg: m.msg });
+      });
+      room.send(MESSAGE.CAREER, {});
+      room.onStateChange((state: { players: Map<string, PlayerTransform & { name: string; look?: string; bld?: string }> }) => {
         const now = performance.now();
         const seen = new Set<string>();
         state.players.forEach((p, id) => {
           if (id === room.sessionId) return;
           seen.add(id);
           let r = this.remotes.get(id);
-          if (!r) { r = { id, name: p.name, mode: p.mode, vid: p.vid ?? '', look: p.look ?? '', buf: [] }; this.remotes.set(id, r); }
-          r.name = p.name; r.mode = p.mode; r.vid = p.vid ?? ''; r.look = p.look ?? '';
+          if (!r) { r = { id, name: p.name, mode: p.mode, vid: p.vid ?? '', look: p.look ?? '', bld: p.bld ?? '', buf: [] }; this.remotes.set(id, r); }
+          r.name = p.name; r.mode = p.mode; r.vid = p.vid ?? ''; r.look = p.look ?? ''; r.bld = p.bld ?? '';
           const last = r.buf[r.buf.length - 1];
           if (!last || last.s.t !== p.t) r.buf.push({ at: now, s: { mode: p.mode, x: p.x, y: p.y, z: p.z, qx: p.qx, qy: p.qy, qz: p.qz, qw: p.qw, vx: p.vx, vy: p.vy, vz: p.vz, t: p.t } });
           if (r.buf.length > 30) r.buf.shift();
         });
         for (const id of [...this.remotes.keys()]) if (!seen.has(id)) this.remotes.delete(id);
       });
-      room.onLeave((code: number) => { log.warn('net', `Left room (code ${code})`); this.status = 'offline'; this.room = null; this.remotes.clear(); });
+      room.onLeave((code: number) => { log.warn('net', `Left room (code ${code})`); this.status = 'offline'; this.room = null; this.remotes.clear(); this.dropCareer(); });
       return true;
     } catch (e) {
       this.status = 'error';
@@ -83,5 +98,18 @@ export class NetClient {
     return b[b.length - 1].s;
   }
 
-  disconnect() { this.room?.leave(); this.room = null; this.status = 'offline'; this.remotes.clear(); }
+  /** Ask the server for a garage transaction; resolves with its verdict (the career arrives with it). */
+  garage(req: GarageRequest): Promise<{ ok: boolean; msg: string }> {
+    const room = this.room;
+    if (!room) return Promise.resolve({ ok: false, msg: 'Not connected' });
+    const txn = `t${Date.now().toString(36)}${(this.txnSeq++).toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    return new Promise(resolve => {
+      this.pending.set(txn, resolve);
+      room.send(MESSAGE.GARAGE, { txn, req });
+      setTimeout(() => { if (this.pending.delete(txn)) resolve({ ok: false, msg: 'The server did not answer' }); }, 6000);
+    });
+  }
+  private dropCareer() { const had = !!this.career; this.career = null; if (had) this.onCareerLost(); for (const r of this.pending.values()) r({ ok: false, msg: 'Disconnected' }); this.pending.clear(); }
+
+  disconnect() { this.room?.leave(); this.room = null; this.status = 'offline'; this.remotes.clear(); this.dropCareer(); }
 }

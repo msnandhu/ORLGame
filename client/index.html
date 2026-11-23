@@ -15,6 +15,7 @@
     <div id="surface" class="chip">Grass</div>
     <div id="waypoint" class="chip hidden"></div>
   </div>
+  <div id="cash" class="chip" title="Money"></div>
   <canvas id="minimap" width="200" height="200"></canvas>
   <div id="net" class="chip hidden"></div>
   <div id="prompt" class="hidden"></div>
@@ -51,12 +52,12 @@
   <h2>Controls</h2>
   <div class="cols">
     <div><h3>On foot</h3>
-      <p><b>W A S D</b> run · <b>Alt</b> hold to walk · <b>Shift</b> sprint<br><b>Space</b> jump · <b>C</b> crouch<br><b>E</b> interact: drive a vehicle, talk to people<br><b>1 – 5</b> pick a reply in a conversation</p></div>
+      <p><b>W A S D</b> run · <b>Alt</b> hold to walk · <b>Shift</b> sprint<br><b>Space</b> jump · <b>C</b> crouch<br><b>E</b> interact: drive a vehicle, talk to people, open the garage in the camp shed<br><b>1 – 5</b> pick a reply in a conversation</p></div>
     <div><h3>Driving</h3>
       <p><b>W / S</b> throttle / brake (hold S when stopped to reverse)<br><b>A / D</b> steer · <b>Space</b> handbrake<br>
       <b>C</b> driving mode: Normal / Sport / Off-road / Rock crawl / Snow / Mud (road cars: Normal / Sport / Snow)<br>
       <b>G</b> transfer case 2H → 4H → 4L · <b>L</b> diff lock (off-roaders only)<br><b>T</b> auto / manual · <b>X / Z</b> shift up / down (manual)<br>
-      <b>F</b> hold at any fuel pump to refuel · <b>N</b> headlights<br><b>R</b> recover vehicle (upright) · <b>E</b> exit<br><b>K</b> use a repair kit (stopped) · <b>F</b> in the camp shed: workshop repair<br>Walk up to any of your vehicles and press <b>E</b> to drive it: off-roaders at camp, road cars in the town car parks (pause menu → Fast travel)</p></div>
+      <b>F</b> hold at any fuel pump to refuel (paid) · <b>N</b> headlights and driving lamps<br><b>R</b> recover vehicle (upright) · <b>E</b> exit<br><b>K</b> use a repair kit (stopped) · <b>F</b> in the camp shed: paid workshop repair<br><b>U</b> at the camp shed or an island garage: open the garage<br>Your vehicles: off-roaders park at camp, road cars in the town car parks. Others there are for sale in the garage.</p></div>
     <div><h3>Camera &amp; game</h3>
       <p><b>Mouse</b> look (click to capture) · <b>Wheel</b> zoom<br><b>V</b> camera: chase / far / hood / first-person (driving)<br>chase / first-person / free-fly (on foot; free-fly: WASD, Q/E down/up)<br>
       <b>M</b> map · <b>H</b> this help · <b>P / Esc</b> pause · <b>F5</b> quick save<br>Gamepad: sticks, RT/LT, A, Y = enter/exit</p></div>
@@ -96,6 +97,8 @@
 
 <div id="creator" class="hidden"></div>
 
+<div id="garage" class="hidden"></div>
+
 <div id="dialogue" class="hidden">
   <div id="dlg-name"></div>
   <div id="dlg-text"></div>
@@ -115,11 +118,11 @@
   <button id="btn-new">New game</button>
   <button id="btn-character">Character</button>
   <button id="btn-mp">Multiplayer free roam</button>
+  <button id="btn-garage">Garage</button>
   <button id="btn-map">World map</button>
   <button id="btn-menu-settings">Settings</button>
   <div class="soon">
     <button disabled title="Planned: Phase 5">Story mode · Phase 5</button>
-    <button disabled title="Planned: Phase 4">Garage · Phase 4</button>
     <button disabled title="Planned: Phase 5">Challenges · Phase 5</button>
   </div>
   <p id="menu-status" class="menu-note small"></p>

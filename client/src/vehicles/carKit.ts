@@ -93,7 +93,14 @@ export class Kit {
   readonly loose: { mesh: Mesh; region: 'front' | 'rear'; base: number }[] = [];
   body!: Body;
   gh?: Greenhouse;
+  /** garage: fitted option per part slot, and the livery ('stock' keeps each design's own stripes) */
+  fit: Record<string, string> = {};
+  livery = 'stock';
   constructor(readonly scene: Scene, readonly root: TransformNode, readonly m: CarMats, readonly lite: boolean) {}
+  /** The design's own stripes, unless the paint shop changed the livery. */
+  private stripes(own?: [number, number]): [number, number] | undefined {
+    return this.livery === 'none' ? undefined : this.livery === 'stripes' ? own ?? [0.07, 0.2] : own;
+  }
 
   add<T extends Mesh>(mesh: T): T { mesh.parent = this.root; this.meshes.push(mesh); return mesh; }
 
@@ -191,7 +198,7 @@ export class Kit {
     const zs = stations(spec.zr, spec.zf, opts.step, extra);
     const rings = zs.map(z => this.body.ring(z, opts.detail));
     const cladY = opts.cladY;
-    const cab = spec.cabin, st = opts.stripes;
+    const cab = spec.cabin, st = this.stripes(opts.stripes);
     const meshes = buildLoft(this.scene, 'body', zs, rings, true, (c: Cell) => {
       if (c.kind === 'inner' && cab && c.z > cab[0] && c.z < cab[1]) return 'int';
       if (cladY !== undefined && c.y < cladY && c.kind === 'lower') return 'clad';
@@ -211,7 +218,7 @@ export class Kit {
     const zs = stations(spec.z1, spec.z0, opts.step);
     const rings = zs.map(z => this.gh!.ring(z, opts.detail));
     const rail = opts.railA ?? 0.6, roofA = 0.74;
-    const st = opts.stripes, stripe = (c: Cell) => !!st && Math.abs(c.x) > st[0] && Math.abs(c.x) < st[1];
+    const st = this.stripes(opts.stripes), stripe = (c: Cell) => !!st && Math.abs(c.x) > st[0] && Math.abs(c.x) < st[1];
     const cls = (c: Cell): string => {
       const a = Math.abs(c.a);
       if (a < 0.03) return 'seal';

@@ -1,16 +1,25 @@
 import type { PlayerTransform } from '../types/game';
+import type { Career, GarageRequest } from '../garage/economy';
 
 /** Client → server messages. */
 export interface ClientMessages {
   state: PlayerTransform;
   chat: { text: string };
+  /** a garage transaction; txn is a unique id so a resend is never charged twice */
+  garage: { txn: string; req: GarageRequest };
+  /** ask for the authoritative career */
+  career: Record<string, never>;
 }
 /** Server → client messages. */
 export interface ServerMessages {
   correction: { x: number; y: number; z: number; reason: string };
   chat: { from: string; text: string };
+  /** the server's answer to a garage transaction, with the authoritative career */
+  garageResult: { txn: string; ok: boolean; msg: string; career: Career };
+  /** the authoritative career (on join) */
+  career: Career;
 }
-export const MESSAGE = { STATE: 'state', CHAT: 'chat', CORRECTION: 'correction' } as const;
+export const MESSAGE = { STATE: 'state', CHAT: 'chat', CORRECTION: 'correction', GARAGE: 'garage', GARAGE_RESULT: 'garage-result', CAREER: 'career' } as const;
 
 /** Structural validation for untrusted input (no throwing). */
 export function isPlayerTransform(v: unknown): v is PlayerTransform {

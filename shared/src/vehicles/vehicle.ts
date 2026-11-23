@@ -33,7 +33,12 @@ export const SURFACE_PROPS: Record<Surface, { mu: number; roll: number; sink: nu
 export const TYRE_GRIP: Record<TyreType, Record<Surface, number>> = {
   'all-terrain': { [Surface.Grass]: 1, [Surface.Dirt]: 1, [Surface.Mud]: 1, [Surface.Rock]: 1, [Surface.Gravel]: 1, [Surface.Asphalt]: 0.9, [Surface.Snow]: 1, [Surface.Sand]: 1, [Surface.Ice]: 1 },
   road: { [Surface.Grass]: 0.82, [Surface.Dirt]: 0.85, [Surface.Mud]: 0.55, [Surface.Rock]: 0.85, [Surface.Gravel]: 0.85, [Surface.Asphalt]: 1.05, [Surface.Snow]: 0.75, [Surface.Sand]: 0.7, [Surface.Ice]: 0.8 },
-  performance: { [Surface.Grass]: 0.68, [Surface.Dirt]: 0.7, [Surface.Mud]: 0.38, [Surface.Rock]: 0.78, [Surface.Gravel]: 0.72, [Surface.Asphalt]: 1.22, [Surface.Snow]: 0.5, [Surface.Sand]: 0.5, [Surface.Ice]: 0.6 },};
+  performance: { [Surface.Grass]: 0.68, [Surface.Dirt]: 0.7, [Surface.Mud]: 0.38, [Surface.Rock]: 0.78, [Surface.Gravel]: 0.72, [Surface.Asphalt]: 1.22, [Surface.Snow]: 0.5, [Surface.Sand]: 0.5, [Surface.Ice]: 0.6 },
+  // garage tyres (Phase 4): specialists trade tarmac grip for their terrain
+  mud: { [Surface.Grass]: 1.08, [Surface.Dirt]: 1.02, [Surface.Mud]: 1.3, [Surface.Rock]: 0.95, [Surface.Gravel]: 0.97, [Surface.Asphalt]: 0.82, [Surface.Snow]: 1.05, [Surface.Sand]: 1.05, [Surface.Ice]: 0.9 },
+  rock: { [Surface.Grass]: 0.98, [Surface.Dirt]: 1.05, [Surface.Mud]: 0.88, [Surface.Rock]: 1.25, [Surface.Gravel]: 1.02, [Surface.Asphalt]: 0.95, [Surface.Snow]: 0.88, [Surface.Sand]: 0.95, [Surface.Ice]: 0.85 },
+  snow: { [Surface.Grass]: 0.92, [Surface.Dirt]: 0.95, [Surface.Mud]: 0.85, [Surface.Rock]: 0.92, [Surface.Gravel]: 0.95, [Surface.Asphalt]: 0.9, [Surface.Snow]: 1.4, [Surface.Sand]: 0.9, [Surface.Ice]: 2.2 },
+};
 
 export class Wheel {
   // static
@@ -110,6 +115,18 @@ export class Vehicle {
     this.hullWasContact = this.hullPoints.map(() => false);
     this.hullNowContact = this.hullPoints.map(() => false);
     this.hullBoxMem = this.hullPoints.map(() => ({ box: -1, axis: 0, sign: 1 }));
+  }
+
+  /**
+   * Swap in a re-built spec (the garage) and keep everything else: position, motion, condition, fuel and modes.
+   * Garage parts never move the wheel mounts or the hull, so only mass properties and the per-step data change.
+   */
+  retune(spec: VehicleSpec) {
+    this.spec = spec;
+    this.body.mass = spec.mass;
+    this.body.invInertiaBody.set(1 / spec.inertia[0], 1 / spec.inertia[1], 1 / spec.inertia[2]);
+    this.fuel = Math.min(this.fuel, spec.fuelCapacity);
+    if (spec.modes && !spec.modes.includes(this.drivingMode)) this.setDrivingMode(spec.modes[0]);
   }
 
   /** Effective rolling radius: a flat tyre runs on the rim. */
@@ -329,8 +346,9 @@ export class Vehicle {
     // ---------- Engine temperature ----------
     if (this.engineOn) {
       const load = throttle * this.rpm / s.redlineRpm;
-      const airflow = Math.min(this.speedKmh, 60) / 60 * 4 * (1 - cond.cooling);
-      const target = 88 + 14 * load + cond.cooling * (15 + 55 * load) - airflow;
+      const cap = s.coolingCapacity ?? 1;
+      const airflow = Math.min(this.speedKmh, 60) / 60 * 4 * (1 - cond.cooling) * cap;
+      const target = 88 + (14 * load + cond.cooling * (15 + 55 * load)) / cap - airflow;
       this.engineTemp += (target - this.engineTemp) * Math.min(1, dt * 0.08);
       if (this.engineTemp > 118) cond.engine = Math.min(1, cond.engine + dt * 0.004 * (this.engineTemp - 118));
       if (this.engineTemp > 125) { this.engineOn = false; this.overheated = true; }

@@ -20,3 +20,6 @@ export * from './world/layout';
 export * from './world/traffic';
 export * from './world/island';
 export * from './world/outer';
+export * from './garage/parts';
+export * from './garage/build';
+export * from './garage/economy';

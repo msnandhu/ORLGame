@@ -6,7 +6,8 @@ import {
   Terrain, Vehicle, Character, VEHICLES, vehicleById, DRIVING_MODE_PROFILES, nextDrivingMode, repairFull, repairWithKit, overallDamage, WORLD_SEED, PHYSICS_HZ, Vec3, Quat,
   VehicleTransition, pickInteractable, Npc, CAMP_MECHANIC, DialogueSession, statureOf, decodeAppearance, DEFAULT_MALE,
   Traffic, Island, isRoadCar, PELLA, CORVAN, HALCYON, STRIX_R2, VANTA_GT, SOLENNE_GT,
-  type Settings, type TrafficObstacle, type PlayerTransform, type ImpactEvent, type Interactable, type CharacterAppearance, type DoorPose,
+  applyBuild, defaultBuild, encodeBuild, decodeBuild, vehiclePrice, formatMoney, newCareer, discoveryReward, DISCOVERY_RADIUS, FUEL_PRICE, KIT_PRICE,
+  type VehicleSpec, type Settings, type TrafficObstacle, type PlayerTransform, type ImpactEvent, type Interactable, type CharacterAppearance, type DoorPose,
 } from '@orl/shared';
 import { createEngine, type Backend } from '../engine/createEngine';
 import { AssetManager } from '../assets/AssetManager';
@@ -37,6 +38,9 @@ import { NetClient } from '../multiplayer/NetClient';
 import { SaveGame } from '../save/SaveGame';
 import { PRESETS, saveSettings } from '../config/settings';
 import { log } from './logger';
+import { Bank } from '../garage/Bank';
+import { GarageScene } from '../garage/GarageScene';
+import { GarageUI } from '../garage/GarageUI';
 const REGION_NAME: Record<string, string> = { plain: 'the Plain Region', hill: 'the Hill Region', snow: 'the Snow Region', forest: 'the Deep Forest' };
 import { markStarted } from './errors';
 
@@ -44,8 +48,10 @@ const $ = (id: string) => document.getElementById(id)!;
 const SPAWN = { px: 1, pz: -2, ph: -2.4 };
 /** Parking bays at base camp, one per catalog vehicle (in catalog order). */
 const BAYS = [{ x: -4, z: 4, h: 0.4 }, { x: -10.5, z: 2.5, h: 0.4 }];
-/** The open-sided shed at camp doubles as the workshop. */
+/** The open-sided shed at camp doubles as the workshop (and the garage). */
 const WORKSHOP = { x: -18, z: 11, r: 9 };
+/** Island garages (map places) where the garage can be used too. */
+const GARAGE_POIS = ['service-garage', 'mountain-garage'];
 const KITS_PER_TRIP = 2;
 /** Where each road car lives: the car park of a settlement (city: racing and luxury, town and village: everyday cars). */
 const HOME_LOT: Record<string, string> = { 'vanta-gt': 'halden', 'solenne-gt': 'halden', halcyon: 'halden', corvan: 'millbrook', 'strix-r2': 'millbrook', pella: 'ashby' };
@@ -72,7 +78,7 @@ export class GameApp {
   terrainR!: TerrainRenderer; props!: PropsRenderer; grass!: GrassField; scenery!: Scenery; particles!: WheelParticles;
   roads!: RoadRenderer; buildings!: BuildingRenderer; islandR!: IslandRenderer; islandF!: IslandFeatures; traffic!: Traffic; trafficR!: TrafficRenderer;
   hud!: Hud; input!: Input; island!: Island; worldMap!: WorldMap; private mapPaused = false; audio = new EngineAudio(); net = new NetClient();
-  private remoteViews = new Map<string, { v: VehicleView; c: CharacterView; sim: Vehicle; ch: Character; vid: string; look: string }>();
+  private remoteViews = new Map<string, { v: VehicleView; c: CharacterView; sim: Vehicle; ch: Character; vid: string; look: string; bld: string }>();
   inVehicle = false; paused = false; started = false;
   /** the player's look (character creator) */
   appearance: CharacterAppearance = CharacterStore.read() ?? DEFAULT_MALE;
@@ -83,6 +89,12 @@ export class GameApp {
   /** character creator open: the camera orbits the player */
   creatorOpen = false; creatorSpin = 0;
   private acc = 0; private refuel = 0; private playTime = 0;
+  /** money: local career offline, the server's online */
+  bank!: Bank;
+  garage!: GarageUI; garageScene: GarageScene | null = null; garageOpen = false; private garagePaused = false;
+  /** build code each fleet vehicle was last built with */
+  private fleetCodes: string[] = [];
+  private pendingFuel = 0; private discoverTimer = 0; private discovering = new Set<string>(); private cashTimer = 0;
   private fpsAcc = 0; private fpsFrames = 0; private fps = 60; private scaling = 1; private adaptTimer = 0;
 
   constructor(private canvas: HTMLCanvasElement, public settings: Settings) {}
@@ -131,8 +143,11 @@ export class GameApp {
     this.islandR = new IslandRenderer(scene, this.terrainR.material, this.terrain.outer);
     this.islandR.onCasters = (added, removed) => { for (const m of removed) this.env.removeShadowCaster(m); for (const m of added) this.env.addShadowCaster(m); };
     this.islandF = new IslandFeatures(scene, this.terrain.outer, this.scenery.water.material!);
+    this.bank = new Bank(this.net, () => { const f = this.inVehicle ? this.vehicle.body.pos : this.player.pos; return { pois: this.island.pois, at: { x: f.x, z: f.z } }; });
     for (const spec of VEHICLES) {
-      const sim = new Vehicle(spec, this.terrain), view = new VehicleView(scene, sim), fx = new DamageFx(scene, sim);
+      const built = this.builtSpec(spec);
+      this.fleetCodes.push(this.buildCode(spec));
+      const sim = new Vehicle(built, this.terrain), view = new VehicleView(scene, sim), fx = new DamageFx(scene, sim);
       sim.onImpact = e => this.onImpact(sim, view, fx, e);
       this.fleet.push(sim); this.fleetViews.push(view); this.fleetFx.push(fx);
     }
@@ -158,6 +173,14 @@ export class GameApp {
     this.rig.sensitivity = this.settings.mouseSensitivity; this.rig.invertY = this.settings.invertY; this.audio.setVolume(this.settings.volume);
     this.net.onCorrection = c => { this.cancelInteraction(); const p = this.inVehicle ? null : this.player; if (p) p.place(c.x, c.z); else this.vehicle.reset(c.x, c.z, this.vehicle.body.quat.yaw()); this.hud.toast('Position corrected by server'); };
     this.net.onChat = c => this.hud.toast(`${c.from}: ${c.text}`);
+    this.garage = new GarageUI($('garage'), {
+      career: () => this.bank.career,
+      request: r => this.bank.request(r),
+      preview: sp => this.garageScene?.show(sp),
+      lights: on => this.garageScene?.setLights(on),
+      close: () => this.closeGarage(),
+    });
+    this.bank.onChange = () => { this.refreshFleet(); this.garage.refresh(); };
     this.newGame(false);
     onProgress(0.9, 'Streaming the island');
     await this.islandR.prime(new Vector3(this.player.pos.x, this.player.pos.y + 2, this.player.pos.z), 25000);
@@ -172,6 +195,9 @@ export class GameApp {
 
   newGame(fromSave: boolean) {
     const s = fromSave ? SaveGame.read() : null;
+    // starting over (a save exists and the player chose New game) starts a new career too
+    if (!fromSave && SaveGame.read() && this.net.status !== 'online') this.bank.resetLocal(newCareer());
+    this.refreshFleet();
     this.fleet.forEach((v, i) => {
       const bay = this.home(v);
       v.condition = { ...v.condition }; repairFull(v.condition); v.engineTemp = 85; v.overheated = false;
@@ -185,16 +211,18 @@ export class GameApp {
       const saved = s.vehicles ?? [{ ...s.vehicle, id: s.vehicle.id ?? this.fleet[0].spec.id }];
       for (const sv of saved) { const v = this.fleet.find(f => f.spec.id === (sv.id ?? this.fleet[0].spec.id)); if (v) SaveGame.apply(v, sv); }
       active = this.fleet.find(f => f.spec.id === s.activeVehicle) ?? active;
+      if (!this.owns(active)) active = this.fleet.find(f => this.owns(f)) ?? active;
       if (typeof s.repairKits === 'number') this.repairKits = Math.max(0, Math.min(KITS_PER_TRIP, Math.floor(s.repairKits)));
       this.player.place(s.player.x, s.player.z); this.player.heading = s.player.heading; this.playTime = s.playTimeSec;
     } else {
       this.player.place(SPAWN.px, SPAWN.pz); this.player.heading = SPAWN.ph; this.playTime = 0;
     }
+    if (!s) active = this.fleet.find(f => this.owns(f)) ?? active;
     this.setActive(active);
     for (const v of this.fleet) for (let i = 0; i < 480; i++) v.step(1 / PHYSICS_HZ, { throttle: 0, brake: 0, steer: 0, handbrake: 1 });
     this.cancelInteraction();
     this.inVehicle = false; this.seat = 'foot'; this.rig.mode = 'chase';
-    if (s?.inVehicle) this.enterVehicle();
+    if (s?.inVehicle && this.owns(this.vehicle)) this.enterVehicle();
     this.rig.yaw = this.player.heading + Math.PI;
     this.terrainR.prime(new Vector3(this.player.pos.x, this.player.pos.y, this.player.pos.z));
   }
@@ -261,6 +289,98 @@ export class GameApp {
     return say(`Travelled to ${region ? REGION_NAME[region] : 'the coast'}`);
   }
 
+  // ---------------- garage and economy ----------------
+  owns(v: Vehicle) { return !!this.bank.career.owned[v.spec.id]; }
+  private buildCode(spec: VehicleSpec) { const o = this.bank.career.owned[spec.id]; return o ? encodeBuild(o.build) : ''; }
+  /** A catalogue vehicle as the player has built it (factory if not owned). */
+  private builtSpec(spec: VehicleSpec) { return applyBuild(spec, this.bank.career.owned[spec.id]?.build ?? defaultBuild()); }
+  /** Re-fit every fleet vehicle whose build changed: the simulation is retuned in place, the model rebuilt. */
+  refreshFleet() {
+    if (!this.fleet.length) return;
+    VEHICLES.forEach((spec, i) => {
+      const code = this.buildCode(spec);
+      if (code === this.fleetCodes[i]) return;
+      this.fleetCodes[i] = code;
+      const sim = this.fleet[i], old = this.fleetViews[i], lights = old.headlightsOn;
+      sim.retune(this.builtSpec(spec));
+      for (const m of old.meshes) this.env.removeShadowCaster(m);
+      old.dispose();
+      const view = new VehicleView(this.scene, sim);
+      for (const m of view.meshes) this.env.addShadowCaster(m);
+      view.setHeadlights(lights); view.sync();
+      this.fleetViews[i] = view;
+      if (this.vView === old) this.vView = view;
+      sim.onImpact = e => this.onImpact(sim, view, this.fleetFx[i], e);
+    });
+    // a sold vehicle can't stay the active one
+    if (!this.owns(this.vehicle) && !this.inVehicle) { const o = this.fleet.find(f => this.owns(f)); if (o) this.setActive(o); }
+  }
+  /** Where the player can use a garage right now (camp workshop or an island garage), or null. */
+  garageHere(): string | null {
+    const p = this.inVehicle ? this.vehicle.body.pos : this.player.pos;
+    if (Math.hypot(p.x - WORKSHOP.x, p.z - WORKSHOP.z) < WORKSHOP.r) return 'Base camp workshop';
+    for (const id of GARAGE_POIS) { const g = this.island.pois.find(q => q.id === id); if (g && Math.hypot(p.x - g.x, p.z - g.z) < 40) return g.name; }
+    return null;
+  }
+  openGarage(where: string) {
+    if (this.garageOpen) return;
+    if (!this.garageScene) this.garageScene = new GarageScene(this.engine, this.canvas, this.settings.graphics);
+    this.cancelInteraction();
+    this.garageOpen = true; this.garage.where = where;
+    document.exitPointerLock?.(); this.input.allowLock = false;
+    if (this.started && !this.paused) { this.paused = true; this.garagePaused = true; this.audio.suspend(); }
+    $('hud').classList.add('hidden'); $('menu').classList.add('hidden');
+    this.garageScene.attach();
+    this.garage.open(this.vehicle.spec.id);
+  }
+  closeGarage() {
+    if (!this.garageOpen) return;
+    this.garage.close(); this.garageScene?.detach(); this.garageScene?.setLights(false);
+    this.garageOpen = false; this.input.allowLock = true;
+    this.refreshFleet();
+    if (this.started) {
+      $('hud').classList.remove('hidden');
+      if (this.garagePaused) { this.paused = false; this.audio.start(); }
+    } else $('menu').classList.remove('hidden');
+    this.garagePaused = false;
+  }
+  /** Paid workshop repair (and kit restock) for a vehicle. */
+  private async paidRepair(v: Vehicle, view: VehicleView, by: string) {
+    const dmg = Math.min(1, overallDamage(v.condition) + (v.overheated ? 0.05 : 0));
+    const msgs: string[] = [];
+    if (dmg > 0.001) {
+      const r = await this.bank.request({ op: 'repair', vid: v.spec.id, damage: dmg });
+      if (!r.ok) { this.hud.toast(r.msg); return; }
+      repairFull(v.condition); v.engineTemp = Math.min(v.engineTemp, 90); v.overheated = false; view.undent();
+      if (!v.engineOn && v.canStart()) v.engineOn = true;
+      msgs.push(`${by}: ${v.spec.name} ${r.msg.toLowerCase()}`);
+    }
+    const missing = KITS_PER_TRIP - this.repairKits;
+    if (missing > 0 && this.bank.career.cash >= KIT_PRICE * missing) {
+      const r = await this.bank.request({ op: 'kits', count: missing });
+      if (r.ok) { this.repairKits = KITS_PER_TRIP; msgs.push(`kits restocked (${formatMoney(KIT_PRICE * missing)})`); }
+    }
+    this.hud.toast(msgs.length ? msgs.join(' · ') : 'Nothing to repair');
+  }
+  /** Fuel is paid for in 5-litre steps (and whatever is left when the pump stops). */
+  private settleFuel() {
+    if (this.pendingFuel <= 0) return;
+    const l = this.pendingFuel; this.pendingFuel = 0;
+    void this.bank.request({ op: 'refuel', litres: l });
+  }
+  /** First visit to a place on the island pays a finder's fee. */
+  private checkDiscoveries(x: number, z: number, dt: number) {
+    this.discoverTimer -= dt; if (this.discoverTimer > 0) return;
+    this.discoverTimer = 1;
+    const done = this.bank.career.discovered;
+    for (const p of this.island.pois) {
+      if (discoveryReward(p.kind) <= 0 || done.includes(p.id) || this.discovering.has(p.id)) continue;
+      if (Math.hypot(p.x - x, p.z - z) > DISCOVERY_RADIUS * 0.9) continue;
+      this.discovering.add(p.id);
+      void this.bank.request({ op: 'discover', poi: p.id }).then(r => { this.discovering.delete(p.id); if (r.ok) this.hud.toast(r.msg); });
+    }
+  }
+
   private setActive(v: Vehicle) {
     const i = this.fleet.indexOf(v);
     this.vehicle = v; this.vView = this.fleetViews[i]; this.particles.v = v;
@@ -292,7 +412,7 @@ export class GameApp {
     else if (e.severity > 0.25) this.hud.toast(e.part === 'front' && c.cooling > 0.3 ? 'Heavy front impact: radiator damaged' : `Heavy impact (${e.part})`);
   }
 
-  save() { const ok = SaveGame.write(SaveGame.capture(this.fleet, this.vehicle, this.player, this.inVehicle, this.playTime, this.repairKits)); this.hud.toast(ok ? 'Game saved' : 'Could not save (browser storage blocked)'); }
+  save() { this.settleFuel(); const ok = SaveGame.write(SaveGame.capture(this.fleet, this.vehicle, this.player, this.inVehicle, this.playTime, this.repairKits)); this.hud.toast(ok ? 'Game saved' : 'Could not save (browser storage blocked)'); }
 
   start() { this.started = true; markStarted(); this.audio.start(); this.canvas.requestPointerLock?.(); }
 
@@ -322,7 +442,13 @@ export class GameApp {
   }
   /** Everything the player can use on foot right now. */
   interactables(): Interactable[] {
-    const list: Interactable[] = this.fleet.map(v => { const d = this.doorPose(v); return { id: `vehicle:${v.spec.id}`, kind: 'vehicle', x: d.x, z: d.z, radius: 3.2, label: `drive the ${v.spec.name}` }; });
+    const list: Interactable[] = this.fleet.map(v => {
+      const d = this.doorPose(v), own = this.owns(v);
+      return { id: `vehicle:${v.spec.id}`, kind: 'vehicle', x: d.x, z: d.z, radius: 3.2, label: own ? `drive the ${v.spec.name}` : `look at the ${v.spec.name} (for sale, ${formatMoney(vehiclePrice(v.spec.id))})` };
+    });
+    // the garage: the camp shed, and the island's garages
+    list.push({ id: 'garage', kind: 'workshop', x: WORKSHOP.x, z: WORKSHOP.z, radius: 7, label: 'open the garage (Base camp workshop)' });
+    for (const id of GARAGE_POIS) { const g = this.island.pois.find(q => q.id === id); if (g) list.push({ id: 'garage', kind: 'workshop', x: g.x, z: g.z, radius: 14, label: `open the garage (${g.name})` }); }
     const b = this.npc.body.pos;
     list.push({ id: `npc:${this.npc.def.id}`, kind: 'npc', x: b.x, z: b.z, radius: 2.6, label: `talk to ${this.npc.def.name}` });
     return list;
@@ -412,7 +538,11 @@ export class GameApp {
   }
   /** Dialogue actions use the same systems as the workshop. Returns a node to divert to when it can't be done. */
   private npcAction(action: string): string | void {
-    if (action === 'restock') { this.repairKits = KITS_PER_TRIP; return; }
+    if (action === 'restock') {
+      const missing = KITS_PER_TRIP - this.repairKits;
+      if (missing > 0) void this.bank.request({ op: 'kits', count: missing }).then(r => { if (r.ok) this.repairKits = KITS_PER_TRIP; this.hud.toast(r.ok ? `Repair kits restocked: ${r.msg}` : r.msg); });
+      return;
+    }
     if (action === 'repair') {
       const n = this.npc.body.pos;
       let best: Vehicle | null = null, bd = Infinity;
@@ -422,9 +552,7 @@ export class GameApp {
       }
       if (!best) return 'no-vehicle';
       if (overallDamage(best.condition) <= 0 && !best.overheated) return 'nothing-to-fix';
-      repairFull(best.condition); best.engineTemp = Math.min(best.engineTemp, 90); best.overheated = false;
-      this.fleetViews[this.fleet.indexOf(best)].undent();
-      this.hud.toast(`${this.npc.def.name} repaired the ${best.spec.name}`);
+      void this.paidRepair(best, this.fleetViews[this.fleet.indexOf(best)], this.npc.def.name);
     }
   }
 
@@ -433,6 +561,12 @@ export class GameApp {
     const inp = this.input, v = this.vehicle, T = this.terrain;
     inp.pollGamepad();
     this.trackFps(dt);
+    if (this.garageOpen && this.garageScene) {
+      if (inp.wasPressed('Escape')) this.closeGarage();
+      this.garageScene.render(dt, inp.mouseDown);
+      inp.endFrame();
+      return;
+    }
     if (this.started) this.handleGlobalKeys();
     else if (this.worldMap?.isOpen && (this.input.wasPressed('KeyM') || this.input.wasPressed('Escape'))) this.toggleMap();
     if (this.started && !this.paused) {
@@ -467,16 +601,21 @@ export class GameApp {
         }
         const nearPump = T.fuelPumps.some(p => Math.hypot(v.body.pos.x - p.x, v.body.pos.z - p.z) < 6);
         const atWorkshop = Math.hypot(v.body.pos.x - WORKSHOP.x, v.body.pos.z - WORKSHOP.z) < WORKSHOP.r;
-        if (nearPump && inp.isDown('KeyF') && v.speedKmh < 3) { v.fuel = Math.min(v.spec.fuelCapacity, v.fuel + 12 * dt); this.refuel = 0.3; if (!v.engineOn && v.canStart()) v.engineOn = true; }
-        if (atWorkshop && inp.wasPressed('KeyF') && v.speedKmh < 3) {
-          repairFull(v.condition); v.engineTemp = Math.min(v.engineTemp, 90); v.overheated = false; this.vView.undent(); this.repairKits = KITS_PER_TRIP;
-          if (!v.engineOn && v.canStart()) v.engineOn = true;
-          this.hud.toast(`Workshop: ${v.spec.name} fully repaired, repair kits restocked`);
-        }
+        const pumping = nearPump && inp.isDown('KeyF') && v.speedKmh < 3 && v.fuel < v.spec.fuelCapacity - 0.05;
+        if (pumping && this.bank.career.cash >= (this.pendingFuel + 1) * FUEL_PRICE) {
+          const add = Math.min(v.spec.fuelCapacity - v.fuel, 12 * dt);
+          v.fuel += add; this.pendingFuel += add; this.refuel = 0.3; if (!v.engineOn && v.canStart()) v.engineOn = true;
+          if (this.pendingFuel >= 5) this.settleFuel();
+        } else if (pumping && this.refuel <= 0) this.hud.toast(`Not enough money for fuel (${formatMoney(FUEL_PRICE)}/L)`);
+        if (!pumping) this.settleFuel();
+        const garage = this.garageHere();
+        if (atWorkshop && inp.wasPressed('KeyF') && v.speedKmh < 3) void this.paidRepair(v, this.vView, 'Workshop');
+        if (garage && inp.wasPressed('KeyU') && v.speedKmh < 3) this.openGarage(garage);
         if (this.refuel > 0) this.refuel -= dt;
         const dmg = v.condition;
-        this.hud.prompt(nearPump ? (this.refuel > 0 ? `Refuelling… ${Math.round(v.fuel)} L` : 'Hold F to refuel') :
-          atWorkshop && (dmg.engine + dmg.cooling + dmg.tyres.reduce((a, b) => a + b, 0) + dmg.suspension.reduce((a, b) => a + b, 0) + Object.values(dmg.body).reduce((a, b) => a + b, 0)) > 0 ? 'Workshop: press F to repair' :
+        this.hud.prompt(nearPump ? (this.refuel > 0 ? `Refuelling… ${Math.round(v.fuel)} L` : `Hold F to refuel (${formatMoney(FUEL_PRICE)}/L)`) :
+          atWorkshop && overallDamage(dmg) > 0 ? `Workshop: F to repair (${formatMoney(Math.max(150, Math.round(vehiclePrice(v.spec.id) * 0.03 * overallDamage(dmg) / 50) * 50))}) · U: garage` :
+          garage && v.speedKmh < 3 ? `${garage}: press U for the garage` :
           v.flooded ? 'Engine flooded: press R to recover' : v.fuel <= 0 ? 'Out of fuel: pause menu → Tow vehicle home' :
           dmg.engine >= 1 ? 'Engine destroyed: pause menu → Tow vehicle home' :
           v.overheated ? `Engine overheated (${Math.round(v.engineTemp)} °C): let it cool, then it restarts${this.repairKits > 0 && dmg.cooling > 0.3 ? ' · K: patch the radiator' : ''}` :
@@ -515,7 +654,11 @@ export class GameApp {
           const p = this.player, target = p.grounded ? pickInteractable(p.pos.x, p.pos.z, p.heading, this.interactables()) : null;
           this.hud.prompt(target ? `Press E to ${target.label}` : null);
           if (enter && target) {
-            if (target.kind === 'vehicle') { const v = this.fleet.find(f => `vehicle:${f.spec.id}` === target.id); if (v) this.beginEnter(v); }
+            if (target.kind === 'vehicle') {
+              const v = this.fleet.find(f => `vehicle:${f.spec.id}` === target.id);
+              if (v && this.owns(v)) this.beginEnter(v);
+              else if (v) this.hud.toast(`The ${v.spec.name} is for sale: buy it in a garage for ${formatMoney(vehiclePrice(v.spec.id))} (you have ${formatMoney(this.bank.career.cash)})`);
+            } else if (target.kind === 'workshop') this.openGarage(this.garageHere() ?? 'Garage');
             else if (target.kind === 'npc') this.openDialogue();
           }
         }
@@ -532,6 +675,7 @@ export class GameApp {
       for (const fx of this.fleetFx) fx.update(dt, PRESETS[this.settings.graphics].particles);
       const slip = v.wheels.reduce((a, w) => a + (w.contact ? Math.abs(w.slipRatio) * 0.5 + Math.abs(w.slipAngle) : 0), 0) / 4;
       const water = v.wheels.some(w => w.inWater) ? Math.min(1, v.speedKmh / 20) : 0;
+      this.audio.tone = v.spec.look.sound ?? 1;
       this.audio.update(v.rpm, this.inVehicle ? v.lastInput.throttle + v.lastInput.brake * (v.gear < 0 ? 1 : 0) : 0, v.engineOn && this.inVehicle, this.inVehicle ? slip : 0, water, true);
       this.net.update(dt, this.localTransform());
     }
@@ -557,6 +701,9 @@ export class GameApp {
     if (this.started) {
       this.hud.kits = this.repairKits;
       this.worldMap.trackExploration(focus.x, focus.z, dt);
+      this.checkDiscoveries(focus.x, focus.z, dt);
+      this.cashTimer -= dt;
+      if (this.cashTimer <= 0) { this.cashTimer = 0.25; $('cash').textContent = formatMoney(this.bank.career.cash); }
       if (!this.terrain.inCore(focus.x, focus.z) || Math.max(Math.abs(focus.x), Math.abs(focus.z)) > this.terrain.half - 200) this.worldMap.ensureLocal(focus.x, focus.z);
       this.hud.outerImg = this.worldMap.localImg;
       this.worldMap.update(dt, this.mapState(focus.x, focus.z));
@@ -638,10 +785,13 @@ export class GameApp {
     for (const [id, r] of this.net.remotes) {
       let view = this.remoteViews.get(id);
       const spec = vehicleById(r.vid);
-      if (view && view.vid !== spec.id) { view.c.attach(null); view.v.root.dispose(); view.c.dispose(); this.remoteViews.delete(id); view = undefined; }
+      if (view && view.vid !== spec.id) { view.c.attach(null); view.v.dispose(); view.c.dispose(); this.remoteViews.delete(id); view = undefined; }
+      // another player's build (from the server): rebuild their car when it changes
+      if (view && view.bld !== r.bld) { const b = decodeBuild(spec, r.bld); view.sim.retune(applyBuild(spec, b)); view.v.dispose(); view.v = new VehicleView(this.scene, view.sim, b.paint ? undefined : Color3.FromHSV((id.charCodeAt(0) * 47) % 360, 0.6, 0.7)); view.bld = r.bld; }
       if (!view) {
-        const sim = new Vehicle(spec, this.terrain), ch = new Character(this.terrain), look = decodeAppearance(r.look);
-        view = { sim, ch, vid: spec.id, look: r.look, v: new VehicleView(this.scene, sim, Color3.FromHSV((id.charCodeAt(0) * 47) % 360, 0.6, 0.7)), c: new CharacterView(this.scene, look) };
+        const b = decodeBuild(spec, r.bld);
+        const sim = new Vehicle(applyBuild(spec, b), this.terrain), ch = new Character(this.terrain), look = decodeAppearance(r.look);
+        view = { sim, ch, vid: spec.id, look: r.look, bld: r.bld, v: new VehicleView(this.scene, sim, b.paint ? undefined : Color3.FromHSV((id.charCodeAt(0) * 47) % 360, 0.6, 0.7)), c: new CharacterView(this.scene, look) };
         ch.stature = statureOf(look) / REF_STATURE;
         for (const w of sim.wheels) w.compression = 0.26;
         this.remoteViews.set(id, view);
@@ -670,7 +820,7 @@ export class GameApp {
         view.v.root.setEnabled(false);
       }
     }
-    for (const [id, view] of this.remoteViews) if (!this.net.remotes.has(id)) { view.c.attach(null); view.v.root.dispose(); view.c.dispose(); this.remoteViews.delete(id); }
+    for (const [id, view] of this.remoteViews) if (!this.net.remotes.has(id)) { view.c.attach(null); view.v.dispose(); view.c.dispose(); this.remoteViews.delete(id); }
   }
 
   private handleGlobalKeys() {

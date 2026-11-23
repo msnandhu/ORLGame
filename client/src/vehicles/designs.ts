@@ -2,9 +2,10 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
-import type { VehicleSpec } from '@orl/shared';
+import { stockFit, type VehicleSpec } from '@orl/shared';
 import type { Kit } from './carKit';
 import type { Pt } from './loft';
+import { offroadParts, roadParts } from './accessories';
 
 /**
  * The car designs. Each is an original model inspired by a real-world type of car (proportions, stance, surfacing and
@@ -24,6 +25,8 @@ export interface DesignInfo {
   rim: RimStyle; rimF: number; centreLock?: boolean; brakes: boolean;
   /** headlamp beam origins (vehicle frame) */
   beams: [number, number, number][];
+  /** garage driving lamps (light bar, pods) */
+  extraBeams?: [number, number, number][];
 }
 
 const rr = (w: number, h: number, r: number, seg = 4): Pt[] => {
@@ -76,6 +79,8 @@ function handles(k: Kit, zs: number[], y: number, mat: PBRMaterial) {
   if (k.lite) return;
   for (const z of zs) for (const sx of [-1, 1]) k.onSide('handle', sx, z, y, rr(0.15, 0.03, 0.012, 2), 0.02, mat, 0.004);
 }
+/** The design's own spoiler stays unless the garage fitted something else in its place. */
+const factoryAero = (k: Kit) => (k.fit.spoiler ?? 'stock') === 'stock';
 function plate(k: Kit, dir: 1 | -1, y: number, x = 0) {
   k.onEnd('plate', dir, x, y, rr(0.52, 0.115, 0.01, 2), 0.012, k.m.plate, 0.004);
 }
@@ -151,13 +156,15 @@ function vanta(k: Kit, sp: VehicleSpec): DesignInfo {
     k.onSide('side-vent', sx, 0.78, h(0.5), [[-0.14, -0.12], [0.12, -0.12], [0.16, 0.1], [-0.1, 0.1]], 0.03, m.grille, 0.002);
   }
   sideStrip(k, -1.0, 1.0, h(0.14), m.carbon, 0.035, 0.0);
-  // the wing: swan-neck posts holding a twin-element carbon wing with end plates
+  // the wing: swan-neck posts holding a twin-element carbon wing with end plates (the garage can delete or swap it)
   const wy = roof + 0.04, wz = -2.05;
-  k.box('wing', 1.86, 0.025, 0.34, m.carbon, 0, wy, wz, -0.08);
-  k.box('wing', 1.86, 0.018, 0.12, m.carbon, 0, wy + 0.06, wz - 0.17, -0.35);
-  for (const sx of [-1, 1]) {
-    k.box('wing-plate', 0.012, 0.22, 0.48, m.carbon, sx * 0.93, wy, wz - 0.04);
-    k.tube('wing-post', [[sx * 0.34, h(0.92), -1.95], [sx * 0.34, wy + 0.08, -1.96], [sx * 0.34, wy + 0.03, -2.02]], 0.018, m.carbon, 6);
+  if (k.fit.spoiler === 'wing') {
+    k.box('wing', 1.86, 0.025, 0.34, m.carbon, 0, wy, wz, -0.08);
+    k.box('wing', 1.86, 0.018, 0.12, m.carbon, 0, wy + 0.06, wz - 0.17, -0.35);
+    for (const sx of [-1, 1]) {
+      k.box('wing-plate', 0.012, 0.22, 0.48, m.carbon, sx * 0.93, wy, wz - 0.04);
+      k.tube('wing-post', [[sx * 0.34, h(0.92), -1.95], [sx * 0.34, wy + 0.08, -1.96], [sx * 0.34, wy + 0.03, -2.02]], 0.018, m.carbon, 6);
+    }
   }
   // tail: full-width lamp, diffuser, centre exhausts
   k.onEnd('taillight', -1, 0, h(0.8), [[-0.6, -0.02], [0.6, -0.02], [0.62, 0.02], [-0.62, 0.02]], 0.03, m.brake, 0.003);
@@ -204,8 +211,10 @@ function strix(k: Kit, sp: VehicleSpec): DesignInfo {
   k.box('scoop-mouth', 0.36, 0.045, 0.02, m.gloss, 0, h(0.875), 1.385, -0.12);
   k.box('lip', 1.6, 0.025, 0.2, m.trim, 0, k.body.sill(1.85) - 0.012, 1.85);
   // tail: roof spoiler, lamps, twin exhaust, diffuser
-  k.box('spoiler', 1.3, 0.03, 0.3, m.paint, 0, roof + 0.01, -1.6, 0.12);
-  for (const sx of [-1, 1]) k.box('spoiler-side', 0.03, 0.08, 0.28, m.paint, sx * 0.63, roof - 0.02, -1.6);
+  if (factoryAero(k)) {
+    k.box('spoiler', 1.3, 0.03, 0.3, m.paint, 0, roof + 0.01, -1.6, 0.12);
+    for (const sx of [-1, 1]) k.box('spoiler-side', 0.03, 0.08, 0.28, m.paint, sx * 0.63, roof - 0.02, -1.6);
+  }
   for (const sx of [-1, 1]) k.lamp('taillight', -1, sx * 0.56, h(0.84), [[-0.14, -0.06], [0.15, -0.06], [0.18, 0.06], [-0.12, 0.05]], m.brake, { housing: m.gloss });
   k.onEnd('rear-bumper', -1, 0, h(0.25), rr(1.4, 0.12, 0.03), 0.03, m.trim, 0.002);
   for (const sx of [-1, 1]) k.cyl('exhaust', 0.045, 0.14, m.steel, sx * 0.4, h(0.24), -1.98, 'z');
@@ -247,7 +256,7 @@ function pella(k: Kit, sp: VehicleSpec): DesignInfo {
     // wrap-around tail lamps reaching into the tailgate
     k.lamp('taillight', -1, sx * 0.52, h(0.8), [[-0.16, -0.06], [0.14, -0.06], [0.18, 0.06], [-0.16, 0.05]], m.brake, { housing: m.gloss });
   }
-  k.box('spoiler', 1.1, 0.025, 0.18, m.paint, 0, roof - 0.005, -1.62, 0.1);
+  if (factoryAero(k)) k.box('spoiler', 1.1, 0.025, 0.18, m.paint, 0, roof - 0.005, -1.62, 0.1);
   k.onEnd('rear-bumper', -1, 0, h(0.24), rr(1.3, 0.05, 0.02), 0.02, m.trim, 0.002);
   k.cyl('exhaust', 0.03, 0.1, m.steel, -0.45, h(0.18), -1.96, 'z');
   plate(k, -1, h(0.5)); plate(k, 1, h(0.42));
@@ -376,7 +385,7 @@ function solenne(k: Kit, sp: VehicleSpec): DesignInfo {
   handles(k, [-0.35], belt - 0.07, m.paint);
   sideLine(k, 0.36, h(0.18), belt, m.trim); sideLine(k, -1.0, h(0.18), belt, m.trim);
   // integrated boot-lid spoiler lip
-  k.box('lip', 1.3, 0.02, 0.12, m.paint, 0, h(0.89), -2.28, 0.15);
+  if (factoryAero(k)) k.box('lip', 1.3, 0.02, 0.12, m.paint, 0, h(0.89), -2.28, 0.15);
   wipers(k, 0.4, belt, 1.2);
   if (!k.lite) for (const sx of [-1, 1]) k.box('bonnet-vent', 0.2, 0.01, 0.3, m.gloss, sx * 0.4, h(0.775), 1.3, -0.06);
   return { rim: 'mesh', rimF: 0.76, brakes: true, beams: [[0.68, h(0.55), 2.36], [-0.68, h(0.55), 2.36]] };
@@ -419,15 +428,12 @@ function ranger(k: Kit, sp: VehicleSpec): DesignInfo {
     // tall rear lamp clusters in the corners
     k.lamp('taillight', -1, sx * 0.82, 0.2, rr(0.13, 0.36, 0.02), m.brake, { housing: m.trim });
     k.lamp('reverse', -1, sx * 0.82, -0.05, rr(0.13, 0.08, 0.02), m.reverse, { housing: m.trim });
-    // side steps and mud flaps
-    k.box('step', 0.2, 0.05, 1.6, m.steel, sx * 0.98, -0.42, -0.05);
+    // mud flaps
     k.box('mudflap', 0.26, 0.3, 0.012, m.rubber, sx * 0.8, -0.5, rz - 0.62);
   }
   // steel bumpers, bull bar, winch, recovery points
   k.loose.push({ mesh: k.box('bumper-f', 1.96, 0.2, 0.26, m.steel, 0, -0.28, 2.3), region: 'front', base: 0 });
   k.loose.push({ mesh: k.box('bumper-r', 1.96, 0.2, 0.22, m.steel, 0, -0.28, -2.34), region: 'rear', base: 0 });
-  k.tube('bullbar', [[-0.62, -0.18, 2.42], [-0.6, 0.34, 2.43], [-0.45, 0.4, 2.44], [0.45, 0.4, 2.44], [0.6, 0.34, 2.43], [0.62, -0.18, 2.42]], 0.045, m.steel, 10);
-  k.tube('bullbar', [[-0.62, 0.12, 2.43], [0.62, 0.12, 2.43]], 0.035, m.steel, 8);
   k.cyl('winch', 0.1, 0.6, m.trim, 0, -0.2, 2.44, 'x');
   for (const sx of [-1, 1]) k.box('shackle', 0.04, 0.09, 0.06, m.accent, sx * 0.72, -0.28, 2.45);
   // the rear door: spare wheel carrier, ladder, plate
@@ -436,17 +442,6 @@ function ranger(k: Kit, sp: VehicleSpec): DesignInfo {
   k.box('ladder', 0.025, 1.0, 0.025, m.trim, -0.7, 0.45, -2.31); k.box('ladder', 0.025, 1.0, 0.025, m.trim, -0.4, 0.45, -2.31);
   plate(k, -1, -0.1, 0.2);
   plate(k, 1, -0.29);
-  // expedition roof rack with a light bar and a jerrycan
-  k.box('rack', 1.5, 0.03, 1.9, m.trim, 0, 1.2, -1.0);
-  for (const sx of [-0.74, 0.74]) k.box('rack', 0.04, 0.1, 1.9, m.trim, sx, 1.17, -1.0);
-  if (!k.lite) for (let i = 0; i < 6; i++) k.box('rack', 1.5, 0.02, 0.03, m.trim, 0, 1.2, -1.9 + i * 0.36);
-  k.box('lightbar', 1.2, 0.09, 0.09, m.trim, 0, 1.2, 0.0);
-  for (let i = 0; i < 5; i++) k.box('lightbar-led', 0.16, 0.06, 0.02, m.head, -0.48 + i * 0.24, 1.2, 0.05);
-  k.box('jerrycan', 0.2, 0.46, 0.34, k.m.accent, 0.6, 1.46, -1.6);
-  if (sp.look.snorkel) {
-    k.tube('snorkel', [[-0.94, 0.1, 0.95], [-0.95, 0.4, 0.8], [-0.95, 0.46, 0.56], [-0.92, 1.0, 0.2], [-0.92, 1.12, 0.17]], 0.055, m.trim, 10);
-    k.box('snorkel-head', 0.15, 0.13, 0.22, m.trim, -0.92, 1.17, 0.2);
-  }
   // body details: door shuts, handles, mirrors on arms, bonnet vent, wipers
   for (const z of [0.52, -0.6, -1.5]) sideLine(k, z, -0.28, 0.46, m.trim);
   handles(k, [-0.4, -1.3], 0.36, m.steel);
@@ -458,7 +453,13 @@ function ranger(k: Kit, sp: VehicleSpec): DesignInfo {
   wipers(k, 0.56, 0.47, 1.4);
   k.box('frame', 1.0, 0.16, 4.1, m.trim, 0, -0.42, 0);
   k.box('skid', 1.0, 0.05, 1.1, m.steel, 0, -0.5, 1.2);
-  return { rim: 'steel', rimF: 0.6, brakes: false, beams: [[0.74, 0.17, 2.24], [-0.74, 0.17, 2.24]] };
+  // garage parts: bull bar, roof rack, driving lamps, steps or sliders, snorkel
+  const extraBeams = offroadParts(k, {
+    roofY: roof, roofZ: [0.0, -1.95], roofW: 1.5, bumperY: -0.28, bumperZ: 2.3, bumperHW: 0.98,
+    sillX: 0.98, sillY: -0.42, sillZ: [0.75, -0.85],
+    snorkel: [[-0.94, 0.1, 0.95], [-0.95, 0.4, 0.8], [-0.95, 0.46, 0.56], [-0.92, 1.0, 0.2], [-0.92, 1.12, 0.17]],
+  });
+  return { rim: 'steel', rimF: 0.6, brakes: false, beams: [[0.74, 0.17, 2.24], [-0.74, 0.17, 2.24]], extraBeams };
 }
 
 function bramble(k: Kit, sp: VehicleSpec): DesignInfo {
@@ -492,7 +493,6 @@ function bramble(k: Kit, sp: VehicleSpec): DesignInfo {
     k.box('tow-hook', 0.04, 0.08, 0.1, m.accent, sx * 0.5, -0.12, 2.08);
     // vertical rear lamps
     k.lamp('taillight', -1, sx * 0.76, 0.12, rr(0.1, 0.26, 0.02), m.brake, { housing: m.trim });
-    k.box('slider', 0.12, 0.09, 1.7, m.steel, sx * 1.0, -0.25, 0);
   }
   // open top: windscreen frame, roll cage, light bar
   k.tube('ws-frame', [[-0.74, 0.4, 0.66], [-0.72, 0.98, 0.5], [0.72, 0.98, 0.5], [0.74, 0.4, 0.66]], 0.035, m.paint, 8);
@@ -506,11 +506,8 @@ function bramble(k: Kit, sp: VehicleSpec): DesignInfo {
   k.tube('cage', [[-0.71, 1.25, 0.05], [0.71, 1.25, 0.05]], 0.035, m.trim);
   k.tube('cage', [[-0.71, 1.28, -0.75], [0.71, 1.28, -0.75]], 0.035, m.trim);
   k.tube('cage', [[-0.71, 1.27, -0.35], [0.71, 1.27, -0.35]], 0.025, m.trim);
-  k.box('lightbar', 1.0, 0.08, 0.08, m.trim, 0, 1.35, 0.0);
-  for (let i = 0; i < 4; i++) k.box('lightbar-led', 0.16, 0.05, 0.02, m.head, -0.36 + i * 0.24, 1.35, 0.045);
   // steel bumpers, winch, tailgate spare
   k.loose.push({ mesh: k.tube('bumper-f', [[-0.95, -0.12, 2.04], [0.95, -0.12, 2.04]], 0.07, m.steel), region: 'front', base: 0 });
-  k.tube('bumper-f-hoop', [[-0.5, -0.12, 2.04], [-0.4, 0.32, 2.12], [0.4, 0.32, 2.12], [0.5, -0.12, 2.04]], 0.04, m.steel);
   k.cyl('winch', 0.1, 0.55, m.trim, 0, 0.0, 2.1, 'x');
   k.loose.push({ mesh: k.tube('bumper-r', [[-0.95, -0.1, -2.02], [0.95, -0.1, -2.02]], 0.07, m.steel), region: 'rear', base: 0 });
   k.cyl('spare', 0.48, 0.3, m.rubber, 0, 0.42, -2.12, 'z'); k.cyl('spare-hub', 0.3, 0.32, m.rim, 0, 0.42, -2.12, 'z');
@@ -519,8 +516,13 @@ function bramble(k: Kit, sp: VehicleSpec): DesignInfo {
   if (!k.lite) for (const sx of [-1, 1]) for (const z of [0.58, 0.0]) k.box('hinge', 0.02, 0.05, 0.08, m.trim, sx * 0.88, 0.25, z);
   k.box('frame', 1.0, 0.14, 3.6, m.trim, 0, -0.32, 0);
   k.box('skid', 0.9, 0.05, 1.4, m.steel, 0, -0.42, 0.4);
-  if (sp.look.snorkel) k.cyl('snorkel', 0.06, 0.95, m.trim, -0.92, 0.75, 0.6, 'y');
-  return { rim: 'beadlock', rimF: 0.58, brakes: false, beams: [[0.56, 0.1, 1.98], [-0.56, 0.1, 1.98]] };
+  // garage parts on the cage and frame
+  const extraBeams = offroadParts(k, {
+    roofY: 1.27, roofZ: [0.05, -0.75], roofW: 1.42, bumperY: -0.12, bumperZ: 2.0, bumperHW: 0.95,
+    sillX: 0.98, sillY: -0.4, sillZ: [0.85, -0.85],
+    snorkel: [[-0.9, 0.2, 1.0], [-0.92, 0.36, 0.86], [-0.92, 0.4, 0.66], [-0.8, 0.98, 0.52], [-0.8, 1.12, 0.5]],
+  });
+  return { rim: 'beadlock', rimF: 0.58, brakes: false, beams: [[0.56, 0.1, 1.98], [-0.56, 0.1, 1.98]], extraBeams };
 }
 
 const DESIGNS: Record<string, (k: Kit, sp: VehicleSpec) => DesignInfo> = {
@@ -531,7 +533,10 @@ const DESIGNS: Record<string, (k: Kit, sp: VehicleSpec) => DesignInfo> = {
 const BY_STYLE: Record<string, (k: Kit, sp: VehicleSpec) => DesignInfo> = { wagon: ranger, crawler: bramble, coupe: solenne, hatch: pella, sedan: corvan };
 
 export function buildDesign(k: Kit, sp: VehicleSpec): DesignInfo {
-  return (DESIGNS[sp.id] ?? BY_STYLE[sp.look.style] ?? corvan)(k, sp);
+  k.fit = sp.look.fit ?? stockFit(sp); k.livery = sp.look.livery ?? 'stock';
+  const info = (DESIGNS[sp.id] ?? BY_STYLE[sp.look.style] ?? corvan)(k, sp);
+  if (sp.drivetrain !== 'part-time-4wd') roadParts(k, sp, sp.id === 'vanta-gt');
+  return info;
 }
 
 export { ring as ringPts };

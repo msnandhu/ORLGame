@@ -10,7 +10,7 @@ import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { Constants } from '@babylonjs/core/Engines/constants';
 import { SpotLight } from '@babylonjs/core/Lights/spotLight';
-import type { Vehicle, ImpactEvent } from '@orl/shared';
+import { VEHICLES, type Vehicle, type ImpactEvent, type VehicleSpec } from '@orl/shared';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import { treadTexture } from '../assets/proceduralTextures';
@@ -58,6 +58,8 @@ export class VehicleView {
   private tyreScale: TransformNode[] = [];
   private loose: { mesh: Mesh; region: 'front' | 'rear'; base: number }[] = [];
   private paints: PBRMaterial[] = [];
+  /** materials made for this car only (the shared ones belong to the scene) */
+  private own: PBRMaterial[] = [];
   /** lite: no headlight beams and simpler parts, merged into a few draw calls (AI traffic and far parked cars) */
   constructor(scene: Scene, private v: Vehicle, paintOverride?: Color3, lite = false) {
     const look = v.spec.look, sp = v.spec;
@@ -65,11 +67,25 @@ export class VehicleView {
     this.root = new TransformNode('vehicle', scene);
     this.root.rotationQuaternion = Quaternion.Identity();
     const fin = FINISH[sp.id] ?? { metallic: 0.5, rim: [0.6, 0.6, 0.62], rimMetal: 0.9, caliper: [0.3, 0.3, 0.3] };
-    const m = carMats(scene, paint, new Color3(...look.accent), { metallic: fin.metallic, rim: new Color3(...fin.rim), rimMetal: fin.rimMetal, caliper: new Color3(...fin.caliper) });
+    const m = carMats(scene, paint, new Color3(...look.accent), { metallic: fin.metallic, rim: new Color3(...(look.rimColor ?? fin.rim)), rimMetal: look.rimColor ? 0.7 : fin.rimMetal, caliper: new Color3(...fin.caliper) });
+    this.own.push(m.paint, m.accent, m.head, m.drl, m.brake, m.reverse, m.caliper, m.rim);
+    // paint shop finishes
+    switch (look.finish) {
+      case 'gloss': m.paint.metallic = 0; m.paint.roughness = 0.28; break;
+      case 'metallic': m.paint.metallic = 0.7; m.paint.roughness = 0.3; break;
+      case 'pearl': m.paint.metallic = 0.45; m.paint.roughness = 0.22; m.paint.sheen.isEnabled = true; m.paint.sheen.intensity = 0.6; m.paint.sheen.color = new Color3(0.9, 0.92, 1); break;
+      case 'matte': m.paint.metallic = 0.05; m.paint.roughness = 0.72; m.paint.clearCoat.isEnabled = false; break;
+    }
     this.paints.push(m.paint);
     this.head = m.head; this.brake = m.brake; this.reverse = m.reverse;
     const kit = new Kit(scene, this.root, m, lite);
-    const info = buildDesign(kit, sp);
+    // the body is drawn from the factory geometry (a lift kit raises the body off the wheels, it doesn't reshape it);
+    // the wheels and everything the simulation moves use the vehicle as built
+    const factory = VEHICLES.find(f => f.id === sp.id);
+    const geo: VehicleSpec = factory ? { ...factory, look: sp.look, tyre: sp.tyre, drivetrain: sp.drivetrain } : sp;
+    const info = buildDesign(kit, geo);
+    const fitRim = look.fit?.rims;
+    if (fitRim && fitRim !== 'stock') info.rim = fitRim as typeof info.rim;
     this.meshes = kit.meshes;
     this.loose = kit.loose;
 
@@ -79,12 +95,19 @@ export class VehicleView {
       l.setEnabled(false); // disabled lights cost nothing in the shaders
       this.lamps.push(l);
     }
+    // garage driving lamps: a long, narrower beam from the light bar and pods
+    if (!lite) for (const [bx, by, bz] of info.extraBeams ?? []) {
+      const l = new SpotLight('driving-lamp', new Vector3(bx, by, bz), new Vector3(0, -0.05, 1), Math.PI / 4.5, 4, scene);
+      l.parent = this.root; l.intensity = 90; l.range = 140; l.diffuse = new Color3(0.95, 0.97, 1);
+      l.setEnabled(false);
+      this.lamps.push(l);
+    }
 
     // ---- wheels: steer node -> tyre squash node -> spin node; tyre, rim barrel, spokes, brakes ----
     const tt = treadTexture();
     const tex = new RawTexture(tt.data, tt.width, tt.height, Constants.TEXTUREFORMAT_RGBA, scene, true, false, Texture.TRILINEAR_SAMPLINGMODE);
     tex.uScale = 2; tex.wrapU = tex.wrapV = Texture.WRAP_ADDRESSMODE;
-    const tyreM = new PBRMaterial('tyre', scene); tyreM.albedoColor = Color3.White(); tyreM.roughness = 0.92; tyreM.metallic = 0; tyreM.albedoTexture = tex;
+    const tyreM = new PBRMaterial('tyre', scene); this.own.push(tyreM); tyreM.albedoColor = Color3.White(); tyreM.roughness = 0.92; tyreM.metallic = 0; tyreM.albedoTexture = tex;
     const R = sp.wheelRadius, W = sp.wheelWidth, offroad = look.style === 'wagon' || look.style === 'crawler';
     const rimR = R * info.rimF, tess = lite ? 18 : 40;
     for (let i = 0; i < v.wheels.length; i++) {
@@ -174,6 +197,13 @@ export class VehicleView {
     }
     this.meshes = out;
     if (lite) this.loose.length = 0;
+  }
+
+  /** Remove the car from the scene (a garage refit builds a new view). */
+  dispose() {
+    for (const l of this.lamps) l.dispose();
+    this.root.dispose(false, false);
+    for (const mat of this.own) mat.dispose(true, true);
   }
 
   /** Repaint (traffic cars are reused for different cars). */

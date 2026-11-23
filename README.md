@@ -1,6 +1,6 @@
 # OFF-ROAD LEGENDS
 
-Browser open-world multiplayer off-road game. **Current version: v0.8.2, the whole island is drivable.** The world is a 1,170 km² island with four regions (Snow, Deep Forest, Hill and Plain). Its terrain streams in around you with snow, ice, sand, sea, lakes, rivers, waterfalls, highways and bridges, and you can drive anywhere on it. In the middle sits the detailed 2.56 km valley around Plain City, with base camp, a town and a village, solid buildings, a highway loop, six road cars and AI traffic. The world map (M) shows the whole island and each region and lets you set markers and fast travel to them. Phase 3 (v0.5) added the character engine, and Phase 2 (v0.4) the data-driven off-road vehicles, driving modes and damage.
+Browser open-world multiplayer off-road game. **Current version: v0.10.0, Phase 4: garage and customization.** Buy vehicles, tune them with 68 parts across body, wheels, suspension and engine, and paint them in a 3D garage; every performance part changes the real vehicle simulation, and online the server validates every purchase. v0.9 rebuilt the cars as originals inspired by real-world types; v0.8 made the whole island drivable. The world is a 1,170 km² island with four regions (Snow, Deep Forest, Hill and Plain). Its terrain streams in around you with snow, ice, sand, sea, lakes, rivers, waterfalls, highways and bridges, and you can drive anywhere on it. In the middle sits the detailed 2.56 km valley around Plain City, with base camp, a town and a village, solid buildings, a highway loop, six road cars and AI traffic. The world map (M) shows the whole island and each region and lets you set markers and fast travel to them. Phase 3 (v0.5) added the character engine, and Phase 2 (v0.4) the data-driven off-road vehicles, driving modes and damage.
 
 Stack: TypeScript (strict) · Babylon.js 9 (WebGPU, falling back to WebGL2) · Havok physics + custom 240 Hz drivetrain/tyre simulation · Colyseus 0.18 server-authoritative multiplayer · Vite · Vitest.
 
@@ -20,7 +20,9 @@ npm run start:server   # run the bundled server
 
 Character: the main menu's **Character** button opens the creator (the first New game opens it too).
 
-Vehicles: the two off-roaders are at base camp. The road cars are in the town car parks, and **Pause → Fast travel** takes you there.
+Vehicles: you start with $25,000 and the Ranger TX4 at base camp. The other vehicles are for sale: off-roaders at camp, road cars in the town car parks (**Pause → Fast travel**).
+
+Garage: **Garage** on the main menu, **E** on foot in the camp shed, or **U** after stopping a vehicle in the shed or at the island's Service Garage or Mountain Garage. Pick a vehicle on the left; the tabs on the right are Overview (buy, sell), Paint, Body, Wheels & tyres, Suspension and Engine. Click an option to preview it on the turntable with the change in figures, then confirm to pay and fit it. Earn money by finding places on the island (each pays once), and spend it on parts, repairs, kits and fuel.
 
 Single player works without the server. For multiplayer, start the server, then click **Multiplayer free roam** in the main menu (server address is in Settings).
 
@@ -30,7 +32,8 @@ Single player works without the server. For multiplayer, start the server, then 
 |---|---|---|
 | Move / drive | WASD | Left stick / triggers |
 | Camera | Mouse (click to lock), wheel zooms | Right stick |
-| Interact: enter / exit vehicle, talk | E | Y |
+| Interact: enter / exit vehicle, talk, open the garage in the camp shed | E | Y |
+| Garage (stopped at a garage) | U | |
 | Walk (hold) | Alt | Light stick tilt |
 | Pick a reply in a conversation | 1 – 5 or click | |
 | Camera mode | V (chase, far, hood, cockpit / on foot: chase, first-person, free) | |

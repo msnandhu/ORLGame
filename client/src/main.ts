@@ -28,7 +28,7 @@ function play(fromSave: boolean) {
   app.newGame(fromSave);
   $('menu').classList.add('hidden'); $('hud').classList.remove('hidden');
   app.setPaused(false); app.start();
-  app.hud.toast(fromSave ? 'Save loaded' : 'Two off-roaders wait at camp and Marta runs the workshop. Road cars are parked in the towns: pause menu → Fast travel');
+  app.hud.toast(fromSave ? 'Save loaded' : 'Your Ranger waits at camp. The shed is the garage: buy vehicles and parts there (E or U). Every new place you find pays a reward');
 }
 
 // ---------- character creator ----------
@@ -64,6 +64,7 @@ $('btn-mp').addEventListener('click', async () => {
   else status.textContent = `Could not reach ${url}. Start one with "npm run dev:server", or set the address in Settings.`;
 });
 $('btn-map').addEventListener('click', () => app.toggleMap());
+$('btn-garage').addEventListener('click', () => app.openGarage('Main menu'));
 $('btn-pause-map').addEventListener('click', () => app.toggleMap());
 $('btn-menu-settings').addEventListener('click', () => $('settings').classList.remove('hidden'));
 

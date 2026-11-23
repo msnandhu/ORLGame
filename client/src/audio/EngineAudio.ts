@@ -6,6 +6,8 @@ export class EngineAudio {
   private noiseGain!: GainNode; private noiseFilt!: BiquadFilterNode;
   private splashGain!: GainNode;
   volume = 0.6;
+  /** engine sound gain from the fitted exhaust and turbo (1 = factory) */
+  tone = 1;
 
   start() {
     if (this.ctx) { this.ctx.resume(); return; }
@@ -43,7 +45,9 @@ export class EngineAudio {
     this.osc1.frequency.setTargetAtTime(Math.max(fire, 10), t, 0.03);
     this.osc2.frequency.setTargetAtTime(Math.max(fire * 0.5, 5), t, 0.03);
     this.filt.frequency.setTargetAtTime(300 + throttle * 1400 + rpm * 0.15, t, 0.05);
-    this.engGain.gain.setTargetAtTime(active && engineOn ? 0.09 + throttle * 0.12 : 0, t, 0.08);
+    this.engGain.gain.setTargetAtTime(active && engineOn ? (0.09 + throttle * 0.12) * this.tone : 0, t, 0.08);
+    // a freer exhaust also sounds brighter
+    if (this.tone > 1) this.filt.Q.setTargetAtTime(2 + (this.tone - 1) * 6, t, 0.1);
     this.noiseGain.gain.setTargetAtTime(active ? Math.min(0.25, slip * 0.3) : 0, t, 0.05);
     this.noiseFilt.frequency.setTargetAtTime(600 + slip * 900, t, 0.1);
     this.splashGain.gain.setTargetAtTime(active ? Math.min(0.4, water) : 0, t, 0.1);

@@ -3,6 +3,8 @@ export class Input {
   private down = new Set<string>();
   private pressed = new Set<string>();
   mouseDX = 0; mouseDY = 0; wheel = 0;
+  /** a mouse button is held on the canvas */
+  mouseDown = false;
   locked = false;
   /** false while a menu needs the cursor (character creator, conversations) */
   allowLock = true;
@@ -24,8 +26,8 @@ export class Input {
     window.addEventListener('mousemove', e => { if (this.locked) { this.mouseDX += e.movementX; this.mouseDY += e.movementY; } });
     // drag-to-orbit fallback when pointer lock is unavailable
     let dragging = false, lx = 0, ly = 0;
-    el.addEventListener('mousedown', e => { dragging = true; lx = e.clientX; ly = e.clientY; });
-    window.addEventListener('mouseup', () => { dragging = false; });
+    el.addEventListener('mousedown', e => { dragging = true; this.mouseDown = true; lx = e.clientX; ly = e.clientY; });
+    window.addEventListener('mouseup', () => { dragging = false; this.mouseDown = false; });
     window.addEventListener('mousemove', e => { if (!this.locked && dragging) { this.mouseDX += e.clientX - lx; this.mouseDY += e.clientY - ly; lx = e.clientX; ly = e.clientY; } });
     el.addEventListener('wheel', e => { this.wheel += Math.sign(e.deltaY); e.preventDefault(); }, { passive: false });
   }

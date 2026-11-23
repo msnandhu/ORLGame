@@ -1,0 +1,67 @@
+:root { --accent: #e0782a; --panel: rgba(14, 17, 20, 0.78); --text: #eef0ea; --muted: #9aa3a0; --warn: #ff5a3c; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d0e; color: var(--text); font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; user-select: none; }
+#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+.hidden { display: none !important; }
+.chip { display: inline-block; background: var(--panel); padding: 4px 10px; border-radius: 4px; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
+.overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 20; }
+.panel { background: rgba(8, 10, 12, 0.82); backdrop-filter: blur(6px); }
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+#topleft { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+#compass { width: 320px; height: 26px; overflow: hidden; position: relative; background: var(--panel); border-radius: 4px; mask-image: linear-gradient(90deg, transparent, #000 20%, #000 80%, transparent); }
+#compass-strip { position: absolute; top: 4px; left: 0; white-space: nowrap; font-size: 13px; font-weight: 600; letter-spacing: 1px; }
+#compass-strip span { display: inline-block; width: 40px; text-align: center; color: var(--muted); }
+#compass-strip span.c { color: var(--text); }
+#compass-mark { position: absolute; left: 50%; top: 0; width: 2px; height: 26px; background: var(--accent); }
+#minimap { position: absolute; top: 16px; right: 16px; width: 200px; height: 200px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.15); background: #111; }
+#prompt { position: absolute; bottom: 26%; left: 50%; transform: translateX(-50%); background: var(--panel); padding: 8px 16px; border-radius: 4px; font-size: 15px; border-left: 3px solid var(--accent); }
+#toast { position: absolute; top: 90px; left: 50%; transform: translateX(-50%); font-size: 18px; font-weight: 600; letter-spacing: 1px; text-shadow: 0 2px 6px #000; opacity: 0; transition: opacity 0.3s; }
+#toast.show { opacity: 1; }
+#foot-hud { position: absolute; left: 24px; bottom: 24px; width: 220px; }
+.bar-label { font-size: 11px; letter-spacing: 2px; color: var(--muted); margin-bottom: 3px; }
+.bar { height: 8px; background: rgba(255,255,255,0.12); border-radius: 4px; overflow: hidden; }
+.bar > div { height: 100%; width: 100%; background: var(--accent); transition: width 0.1s; }
+#veh-hud { position: absolute; right: 24px; bottom: 20px; width: 360px; height: 250px; }
+#tacho { position: absolute; right: 0; bottom: 0; width: 230px; height: 230px; }
+#speed { position: absolute; right: 52px; bottom: 74px; width: 126px; text-align: center; font-size: 46px; font-weight: 700; line-height: 1; }
+#speed small { display: block; font-size: 12px; color: var(--muted); letter-spacing: 2px; font-weight: 400; }
+#gear { position: absolute; right: 95px; bottom: 26px; width: 40px; text-align: center; font-size: 30px; font-weight: 700; color: var(--accent); }
+#trans { position: absolute; right: 86px; bottom: 4px; }
+#indicators { position: absolute; right: 245px; bottom: 120px; display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+.ind { font-size: 11px; letter-spacing: 1px; padding: 3px 8px; border-radius: 3px; background: var(--panel); color: #555c5a; font-weight: 600; }
+.ind.on { color: #8fe36b; }
+.ind.warn { display: none; }
+.ind.warn.on { display: inline-block; color: #fff; background: var(--warn); }
+#fuel { position: absolute; right: 245px; bottom: 70px; width: 110px; }
+#wheels { position: absolute; right: 245px; bottom: 4px; width: 110px; height: 56px; }
+#wheels .w { position: absolute; width: 16px; height: 22px; border-radius: 3px; background: #333; border: 1px solid #000; }
+#w0 { left: 60px; top: 0; } #w1 { left: 82px; top: 0; } #w2 { left: 60px; top: 26px; } #w3 { left: 82px; top: 26px; }
+#w0 { left: 82px; } #w1 { left: 60px; } #w2 { left: 82px; } #w3 { left: 60px; }
+#wlabel { position: absolute; left: 0; top: 8px; width: 56px; font-size: 9px; color: var(--muted); letter-spacing: 1px; line-height: 1.2; }
+#fps { position: absolute; left: 10px; top: 10px; font: 12px monospace; color: #9f9; }
+#menu { background: radial-gradient(ellipse at center, rgba(20,24,22,0.55), rgba(5,6,7,0.92)); }
+.title { font-size: 72px; font-weight: 900; letter-spacing: 6px; line-height: 0.95; text-align: center; text-shadow: 0 6px 30px rgba(0,0,0,0.6); }
+.title span { display: block; color: var(--accent); font-size: 80px; }
+.sub { color: var(--muted); letter-spacing: 3px; margin: 14px 0 28px; text-transform: uppercase; font-size: 13px; }
+button { pointer-events: auto; font: inherit; font-size: 16px; letter-spacing: 2px; text-transform: uppercase; color: var(--text); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.2); padding: 12px 34px; margin: 5px; min-width: 260px; cursor: pointer; border-radius: 3px; transition: background 0.15s, border-color 0.15s; }
+button:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: wait; }
+#btn-start:not(:disabled) { background: var(--accent); border-color: var(--accent); font-weight: 700; }
+.menu-note { color: var(--muted); text-align: center; max-width: 520px; line-height: 1.5; }
+.menu-note.small { font-size: 12px; }
+.panel h2 { letter-spacing: 4px; text-transform: uppercase; margin: 0 0 18px; }
+.setting { display: flex; align-items: center; justify-content: space-between; width: 300px; margin: 6px 0; pointer-events: auto; color: var(--muted); }
+.setting select, .setting input { pointer-events: auto; }
+#help .cols { display: flex; gap: 40px; max-width: 1000px; padding: 0 20px; flex-wrap: wrap; justify-content: center; }
+#help h3 { color: var(--accent); letter-spacing: 2px; text-transform: uppercase; font-size: 14px; }
+#help p { line-height: 1.8; color: #cfd4d0; }
+.hint { color: var(--muted); font-size: 13px; margin-top: 12px; }
+#bigmap { background: rgba(0,0,0,0.75); }
+#bigmap-canvas { width: min(85vh, 90vw); height: min(85vh, 90vw); border: 2px solid rgba(255,255,255,0.2); }
+@media (max-width: 700px) {
+  .title { font-size: 44px; } .title span { font-size: 50px; }
+  #veh-hud { transform: scale(0.7); transform-origin: bottom right; }
+  #minimap { width: 130px; height: 130px; }
+  #compass { width: 200px; }
+  button { min-width: 200px; }
+}

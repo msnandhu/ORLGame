@@ -22,7 +22,7 @@ describe('server movement validation', () => {
   });
   it('rejects positions under the map, out of bounds and broken rotations', () => {
     expect(validateMove(null, tf(0, 0, { y: t.heightAt(0, 0) - 20 }), 0, t).ok).toBe(false);
-    expect(validateMove(null, tf(1400, 0), 0, t).ok).toBe(false);
+    expect(validateMove(null, tf(60000, 0), 0, t).ok).toBe(false);
     expect(validateMove(null, tf(0, 0, { qw: 3 }), 0, t).ok).toBe(false);
   });
   it('structural checks reject malformed input and sanitise chat', () => {

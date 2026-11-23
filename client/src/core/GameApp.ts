@@ -23,6 +23,8 @@ import { RoadRenderer } from '../world/RoadRenderer';
 import { BuildingRenderer } from '../world/BuildingRenderer';
 import { TrafficRenderer } from '../world/TrafficRenderer';
 import { GrassField } from '../world/GrassField';
+import { IslandRenderer } from '../world/island/IslandRenderer';
+import { IslandFeatures } from '../world/island/IslandFeatures';
 import { VehicleView } from '../vehicles/VehicleView';
 import { CharacterView } from '../characters/CharacterView';
 import { CharacterStore } from '../save/CharacterStore';
@@ -35,6 +37,7 @@ import { NetClient } from '../multiplayer/NetClient';
 import { SaveGame } from '../save/SaveGame';
 import { PRESETS, saveSettings } from '../config/settings';
 import { log } from './logger';
+const REGION_NAME: Record<string, string> = { plain: 'the Plain Region', hill: 'the Hill Region', snow: 'the Snow Region', forest: 'the Deep Forest' };
 import { markStarted } from './errors';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -67,7 +70,7 @@ export class GameApp {
   repairKits = KITS_PER_TRIP;
   vView!: VehicleView; cView!: CharacterView; rig!: CameraRig; env!: Environment;
   terrainR!: TerrainRenderer; props!: PropsRenderer; grass!: GrassField; scenery!: Scenery; particles!: WheelParticles;
-  roads!: RoadRenderer; buildings!: BuildingRenderer; traffic!: Traffic; trafficR!: TrafficRenderer;
+  roads!: RoadRenderer; buildings!: BuildingRenderer; islandR!: IslandRenderer; islandF!: IslandFeatures; traffic!: Traffic; trafficR!: TrafficRenderer;
   hud!: Hud; input!: Input; island!: Island; worldMap!: WorldMap; private mapPaused = false; audio = new EngineAudio(); net = new NetClient();
   private remoteViews = new Map<string, { v: VehicleView; c: CharacterView; sim: Vehicle; ch: Character; vid: string; look: string }>();
   inVehicle = false; paused = false; started = false;
@@ -123,6 +126,10 @@ export class GameApp {
     this.props = new PropsRenderer(scene, this.terrain);
     this.grass = new GrassField(scene, this.terrain);
     this.scenery = new Scenery(scene, this.terrain, this.physics, assets.get<{ normal: RawImage }>('Terrain textures').normal);
+    // the rest of the island: streamed terrain, sea, lakes, rivers, roads and bridges
+    this.terrainR.viewDistance = Infinity;
+    this.islandR = new IslandRenderer(scene, this.terrainR.material, this.terrain.outer);
+    this.islandF = new IslandFeatures(scene, this.terrain.outer, this.scenery.water.material!);
     for (const spec of VEHICLES) {
       const sim = new Vehicle(spec, this.terrain), view = new VehicleView(scene, sim), fx = new DamageFx(scene, sim);
       sim.onImpact = e => this.onImpact(sim, view, fx, e);
@@ -141,15 +148,18 @@ export class GameApp {
     this.applyGraphics();
     this.input = new Input(this.canvas);
     this.hud = new Hud(this.terrain);
-    this.island = new Island();
+    this.island = this.terrain.outer.island;
     this.worldMap = new WorldMap(this.island, { img: this.hud.mapImg, half: this.terrain.half });
     this.worldMap.onCloseRequest = () => this.toggleMap();
+    this.worldMap.onTravelRequest = (x, z) => { void this.travelToPoint(x, z); };
     this.worldMap.onMarkersChanged = () => { this.hud.waypoint = this.worldMap.waypoint; };
     this.hud.waypoint = this.worldMap.waypoint;
     this.rig.sensitivity = this.settings.mouseSensitivity; this.rig.invertY = this.settings.invertY; this.audio.setVolume(this.settings.volume);
     this.net.onCorrection = c => { this.cancelInteraction(); const p = this.inVehicle ? null : this.player; if (p) p.place(c.x, c.z); else this.vehicle.reset(c.x, c.z, this.vehicle.body.quat.yaw()); this.hud.toast('Position corrected by server'); };
     this.net.onChat = c => this.hud.toast(`${c.from}: ${c.text}`);
     this.newGame(false);
+    onProgress(0.9, 'Streaming the island');
+    await this.islandR.prime(new Vector3(this.player.pos.x, this.player.pos.y + 2, this.player.pos.z), 25000);
     onProgress(0.95, 'Compiling shaders');
     await scene.whenReadyAsync();
     $('backend-info').textContent = `Renderer: ${this.backend}${this.physics ? ' · Havok physics' : ' · physics props off'} · ${this.terrain.size} m region`;
@@ -219,6 +229,36 @@ export class GameApp {
     return `Travelled to ${name}`;
   }
 
+  /**
+   * Offline fast travel to any point of the island (a map marker): the nearest dry, drivable ground within 400 m,
+   * in the current vehicle if driving. Waits for the terrain there to stream in before handing back control.
+   */
+  async travelToPoint(x: number, z: number): Promise<string> {
+    const say = (m: string) => { if (this.worldMap.isOpen) this.worldMap.flash(m); else this.hud.toast(m); return m; };
+    if (this.net.status === 'online') return say('Fast travel is off in multiplayer');
+    if (this.transition || this.dialogue) return say('Finish what you are doing first');
+    const T = this.terrain;
+    let spot: [number, number] | null = null;
+    for (let r = 0; r <= 400 && !spot; r += 8) for (let a = 0; a < 16 && !spot; a++) {
+      const px = x + Math.cos(a / 16 * Math.PI * 2) * r, pz = z + Math.sin(a / 16 * Math.PI * 2) * r;
+      if (!T.inBounds(px, pz) || T.waterDepthAt(px, pz) > 0.05 || T.normalAt(px, pz)[1] < 0.93) continue;
+      spot = [px, pz];
+      if (r === 0) break;
+    }
+    if (!spot) return say('No dry ground near that marker');
+    const [px, pz] = spot, heading = Math.atan2(-px, -pz);
+    if (this.worldMap.isOpen) this.worldMap.flash('Travelling…');
+    await this.islandR.prime(new Vector3(px, T.heightAt(px, pz) + 2, pz), 30000);
+    this.cancelInteraction();
+    if (this.inVehicle) { this.vehicle.reset(px, pz, heading); this.vehicle.body.vel.set(0, 0, 0); this.vehicle.body.angVel.set(0, 0, 0); }
+    else this.player.place(px, pz);
+    this.player.heading = heading; this.rig.yaw = heading + Math.PI;
+    this.terrainR.prime(new Vector3(px, T.heightAt(px, pz), pz));
+    if (this.worldMap.isOpen) this.toggleMap();
+    const region = this.island.regionAt(px, pz);
+    return say(`Travelled to ${region ? REGION_NAME[region] : 'the coast'}`);
+  }
+
   private setActive(v: Vehicle) {
     const i = this.fleet.indexOf(v);
     this.vehicle = v; this.vView = this.fleetViews[i]; this.particles.v = v;
@@ -258,7 +298,8 @@ export class GameApp {
     const p = PRESETS[this.settings.graphics];
     this.scaling = p.hardwareScaling; this.engine.setHardwareScalingLevel(this.scaling);
     this.env.apply(p);
-    this.terrainR.viewDistance = p.viewDistance; this.props.viewDistance = Math.min(p.viewDistance, 1400);
+    this.terrainR.viewDistance = Infinity; this.props.viewDistance = Math.min(p.viewDistance, 1400);
+    this.islandF.viewDistance = p.islandDistance * 0.5; this.islandR.splitFactor = p.islandDetail; this.islandR.treeDensity = p.treeDensity;
     this.props.setDensity(p.treeDensity); this.grass.setDensity(p.grassDensity); this.particles.budget = p.particles;
     saveSettings(this.settings);
   }
@@ -506,12 +547,15 @@ export class GameApp {
       this.rig.portrait(this.player.pos, this.player.heading + this.creatorSpin, statureOf(this.appearance));
     } else this.rig.update(dt, focus, this.inVehicle ? v.body.quat.yaw() : this.player.heading, this.inVehicle, Math.abs(v.forwardSpeed()), this.inVehicle ? v.body.quat : null, freeMove);
     const cam = this.rig.camera.position;
-    this.terrainR.update(cam); this.props.update(cam); this.grass.update(cam); this.roads.update(cam);
+    this.rig.camera.minZ = this.rig.mode === 'first-person' ? 0.08 : 0.3;
+    this.terrainR.update(cam); this.islandR.update(cam); this.islandF.update(cam); this.props.update(cam); this.grass.update(cam); this.roads.update(cam);
     this.trafficR.update(cam, dt);
     this.env.follow(new Vector3(focus.x, focus.y, focus.z));
     if (this.started) {
       this.hud.kits = this.repairKits;
       this.worldMap.trackExploration(focus.x, focus.z, dt);
+      if (!this.terrain.inCore(focus.x, focus.z) || Math.max(Math.abs(focus.x), Math.abs(focus.z)) > this.terrain.half - 200) this.worldMap.ensureLocal(focus.x, focus.z);
+      this.hud.outerImg = this.worldMap.localImg;
       this.worldMap.update(dt, this.mapState(focus.x, focus.z));
       this.hud.update(dt, { px: focus.x, pz: focus.z, viewYaw: this.rig.viewYaw, inVehicle: this.inVehicle, v, vx: v.body.pos.x, vz: v.body.pos.z, vHeading: v.body.quat.yaw(), stamina: this.player.stamina, surface: T.surfaceAt(focus.x, focus.z) });
       const net = $('net');

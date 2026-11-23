@@ -21,6 +21,10 @@ const SPLAT: Record<Surface, [number, number, number, number]> = {
   [Surface.Gravel]: [0, 0.55, 0.45, 0],
   // roads are drawn as their own meshes; the ground under them reads as packed dirt at the edges
   [Surface.Asphalt]: [0, 0.8, 0.2, 0],
+  // the island's own surfaces (snow, sand and ice are tinted on top of these by the island renderer)
+  [Surface.Snow]: [0, 0.3, 0.7, 0],
+  [Surface.Sand]: [0, 1, 0, 0],
+  [Surface.Ice]: [0, 0, 1, 0],
 };
 
 interface Chunk { hi: Mesh | null; lo: Mesh; center: Vector3; ci: number; cj: number }
@@ -32,7 +36,7 @@ interface Chunk { hi: Mesh | null; lo: Mesh; center: Vector3; ci: number; cj: nu
  */
 export class TerrainRenderer {
   readonly chunks: Chunk[] = [];
-  private material: PBRMaterial;
+  readonly material: PBRMaterial;
   private cols!: { tint: Float32Array; splat: Float32Array };
   private static readonly C = 64;
   /** full-detail chunks built so far / currently alive (for the stats line and tests) */

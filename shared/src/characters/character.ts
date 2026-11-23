@@ -91,7 +91,7 @@ export class Character {
     // collide with trees and boulders (horizontal push-out)
     T.query(this.pos.x, this.pos.z, 2, this._qb, this._qt);
     for (const i of this._qt) {
-      const t = T.trees[i];
+      const t = T.treeAt(i);
       const dx = this.pos.x - t.x, dz = this.pos.z - t.z, d = Math.hypot(dx, dz), r = t.r + this.radius;
       if (d < r && d > 1e-4) { this.pos.x = t.x + (dx / d) * r; this.pos.z = t.z + (dz / d) * r; }
     }
@@ -131,16 +131,15 @@ export class Character {
         this.pos.x = b.cx + nx * c + nz * s; this.pos.z = b.cz - nx * s + nz * c;
       }
     }
-    const lim = T.half - 3;
-    this.pos.x = clamp(this.pos.x, -lim, lim); this.pos.z = clamp(this.pos.z, -lim, lim);
+    T.clampToWorld(this.pos, 3);
 
     const g = this.groundAt(this.pos.x, this.pos.z);
     if (this.pos.y <= g + (this.grounded ? 0.3 : 0) && this.vel.y <= 0.1) {
       this.pos.y = g; this.vel.y = 0; this.grounded = true;
     } else this.grounded = this.pos.y <= g + 0.01;
     // can't sink into water deeper than wading; swim-float at chest depth
-    const wd = T.waterLevel - this.pos.y;
-    if (wd > 1.2) { this.pos.y = T.waterLevel - 1.2; this.vel.y = 0; this.grounded = true; }
+    const wsurf = T.waterAt(this.pos.x, this.pos.z), wd = wsurf - this.pos.y;
+    if (wd > 1.2) { this.pos.y = wsurf - 1.2; this.vel.y = 0; this.grounded = true; }
 
     this.speed = Math.hypot(this.vel.x, this.vel.z);
     // stride length scales with height, so a tall character's legs don't skate

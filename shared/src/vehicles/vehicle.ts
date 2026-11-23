@@ -25,12 +25,15 @@ export const SURFACE_PROPS: Record<Surface, { mu: number; roll: number; sink: nu
   [Surface.Rock]:   { mu: 1.05, roll: 0.015, sink: 0.0,  stiff: 1.1 },
   [Surface.Gravel]: { mu: 0.68, roll: 0.035, sink: 0.02, stiff: 0.8 },
   [Surface.Asphalt]: { mu: 1.0, roll: 0.012, sink: 0.0, stiff: 1.15 },
+  [Surface.Snow]:   { mu: 0.36, roll: 0.05,  sink: 0.05, stiff: 0.7 },
+  [Surface.Sand]:   { mu: 0.6,  roll: 0.09,  sink: 0.06, stiff: 0.6 },
+  [Surface.Ice]:    { mu: 0.12, roll: 0.01,  sink: 0.0,  stiff: 1.1 },
 };
 /** Grip multiplier per tyre compound and surface: chunky all-terrains lose some grip on tarmac, performance tyres need it. */
 export const TYRE_GRIP: Record<TyreType, Record<Surface, number>> = {
-  'all-terrain': { [Surface.Grass]: 1, [Surface.Dirt]: 1, [Surface.Mud]: 1, [Surface.Rock]: 1, [Surface.Gravel]: 1, [Surface.Asphalt]: 0.9 },
-  road: { [Surface.Grass]: 0.82, [Surface.Dirt]: 0.85, [Surface.Mud]: 0.55, [Surface.Rock]: 0.85, [Surface.Gravel]: 0.85, [Surface.Asphalt]: 1.05 },
-  performance: { [Surface.Grass]: 0.68, [Surface.Dirt]: 0.7, [Surface.Mud]: 0.38, [Surface.Rock]: 0.78, [Surface.Gravel]: 0.72, [Surface.Asphalt]: 1.22 },};
+  'all-terrain': { [Surface.Grass]: 1, [Surface.Dirt]: 1, [Surface.Mud]: 1, [Surface.Rock]: 1, [Surface.Gravel]: 1, [Surface.Asphalt]: 0.9, [Surface.Snow]: 1, [Surface.Sand]: 1, [Surface.Ice]: 1 },
+  road: { [Surface.Grass]: 0.82, [Surface.Dirt]: 0.85, [Surface.Mud]: 0.55, [Surface.Rock]: 0.85, [Surface.Gravel]: 0.85, [Surface.Asphalt]: 1.05, [Surface.Snow]: 0.75, [Surface.Sand]: 0.7, [Surface.Ice]: 0.8 },
+  performance: { [Surface.Grass]: 0.68, [Surface.Dirt]: 0.7, [Surface.Mud]: 0.38, [Surface.Rock]: 0.78, [Surface.Gravel]: 0.72, [Surface.Asphalt]: 1.22, [Surface.Snow]: 0.5, [Surface.Sand]: 0.5, [Surface.Ice]: 0.6 },};
 
 export class Wheel {
   // static
@@ -282,7 +285,7 @@ export class Vehicle {
       }
       const susp = s.restLength - w.compression;
       w.worldCenter.copy(_p).addScaledVector(_n, susp + (w.contact ? 0 : 0));
-      if (w.worldCenter.y < T.waterLevel) w.inWater = true;
+      if (w.worldCenter.y < T.waterAt(w.worldCenter.x, w.worldCenter.z)) w.inWater = true;
     }
 
     // Spring/damper + bump stop + anti-roll
@@ -320,7 +323,7 @@ export class Vehicle {
     const wheelRpm = avgOmega * ratio * 60 / (2 * Math.PI);
     if (this.flooded && !this.wheels.some(w => w.inWater)) { /* stays off until restart */ }
     const intakeY = _p.copy(new Vec3(0, s.intakeHeight, 1.6)).applyQuaternion(q).add(b.pos).y;
-    if (this.engineOn && intakeY < T.waterLevel) { this.engineOn = false; this.flooded = true; }
+    if (this.engineOn && intakeY < T.waterAt(_p.x, _p.z)) { this.engineOn = false; this.flooded = true; }
     if (this.fuel <= 0) this.engineOn = false;
     if (cond.engine >= 1) this.engineOn = false;
     // ---------- Engine temperature ----------
@@ -487,7 +490,7 @@ export class Vehicle {
         if (d < bo.r && d > 1e-4) { _n.divideScalar(d); this.contactForce(_p, _n, bo.r - d, 0.7); }
       }
       for (const i of _qt) {
-        const tr = T.trees[i];
+        const tr = T.treeAt(i);
         if (_p.y < tr.y - 0.5 || _p.y > tr.y + tr.h) continue;
         _n.set(_p.x - tr.x, 0, _p.z - tr.z);
         const d = _n.length();
@@ -504,7 +507,7 @@ export class Vehicle {
     }
     // Wheels vs trees (sideways blocking)
     for (const w of W) for (const i of _qt) {
-      const tr = T.trees[i];
+      const tr = T.treeAt(i);
       _n.set(w.worldCenter.x - tr.x, 0, w.worldCenter.z - tr.z);
       const d = _n.length(), rr = tr.r + s.wheelRadius * 0.8;
       if (d < rr && d > 1e-4 && w.worldCenter.y < tr.y + tr.h) { _n.divideScalar(d); this.contactForce(w.worldCenter, _n, rr - d, 0.3); }
@@ -514,7 +517,7 @@ export class Vehicle {
     let submerged = 0;
     for (const lp of this.hullPoints) {
       _p.copy(lp).applyQuaternion(q).add(b.pos);
-      const depth = T.waterLevel - _p.y;
+      const depth = T.waterAt(_p.x, _p.z) - _p.y;
       if (depth > 0) {
         submerged++;
         b.pointVelocity(_p, _v);
@@ -530,10 +533,11 @@ export class Vehicle {
 
     b.integrate(dt, GRAVITY);
 
-    // keep inside the region
-    const lim = T.half - 6;
-    if (Math.abs(b.pos.x) > lim) { b.pos.x = Math.sign(b.pos.x) * lim; b.vel.x *= -0.3; }
-    if (Math.abs(b.pos.z) > lim) { b.pos.z = Math.sign(b.pos.z) * lim; b.vel.z *= -0.3; }
+    // keep inside the world (the island and its sea margin)
+    const ox = b.pos.x, oz = b.pos.z;
+    T.clampToWorld(b.pos, 6);
+    if (b.pos.x !== ox) b.vel.x *= -0.3;
+    if (b.pos.z !== oz) b.vel.z *= -0.3;
 
     // upside-down detection
     if (_up.y < 0.25 && sp2 < 2) this.upsideDownTimer += dt; else this.upsideDownTimer = 0;

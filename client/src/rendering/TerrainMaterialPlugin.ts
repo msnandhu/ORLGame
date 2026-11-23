@@ -7,6 +7,8 @@ import type { Scene } from '@babylonjs/core/scene';
 import { ShaderLanguage } from '@babylonjs/core/Materials/shaderLanguage';
 
 export const SPLAT_KIND = 'splat';
+/** optional second weight set: snow and sand cover (the island's terrain) */
+export const SPLAT2_KIND = 'splat2';
 
 /**
  * Splat-mapped terrain shading for a PBRMaterial: four tiling layers (grass, dirt, rock, mud) blended per pixel by
@@ -15,16 +17,18 @@ export const SPLAT_KIND = 'splat';
  */
 export class TerrainMaterialPlugin extends MaterialPluginBase {
   constructor(material: Material, private layers: BaseTexture[]) {
-    super(material, 'TerrainSplat', 200, { TERRAIN_SPLAT: false });
+    super(material, 'TerrainSplat', 200, { TERRAIN_SPLAT: false, TERRAIN_SPLAT2: false });
     this._enable(true);
   }
   override getClassName() { return 'TerrainMaterialPlugin'; }
   override isCompatible(lang: ShaderLanguage) { return lang === ShaderLanguage.GLSL || lang === ShaderLanguage.WGSL; }
   override prepareDefines(defines: Record<string, unknown>, _scene: Scene, mesh: AbstractMesh) {
     defines.TERRAIN_SPLAT = mesh.isVerticesDataPresent(SPLAT_KIND);
+    defines.TERRAIN_SPLAT2 = mesh.isVerticesDataPresent(SPLAT2_KIND);
   }
   override getAttributes(attributes: string[], _scene: Scene, mesh: AbstractMesh) {
     if (mesh.isVerticesDataPresent(SPLAT_KIND)) attributes.push(SPLAT_KIND);
+    if (mesh.isVerticesDataPresent(SPLAT2_KIND)) attributes.push(SPLAT2_KIND);
   }
   override getSamplers(samplers: string[]) { samplers.push('terrainL0', 'terrainL1', 'terrainL2', 'terrainL3'); }
   override getActiveTextures(active: BaseTexture[]) { active.push(...this.layers); }
@@ -42,8 +46,15 @@ attribute vec4 splat;
 varying vec4 vSplat;
 varying vec3 vTerrainPos;
 varying vec3 vTerrainNrm;
+#endif
+#ifdef TERRAIN_SPLAT2
+attribute vec2 splat2;
+varying vec2 vSplat2;
 #endif`,
       CUSTOM_VERTEX_MAIN_END: `
+#ifdef TERRAIN_SPLAT2
+vSplat2 = splat2;
+#endif
 #ifdef TERRAIN_SPLAT
 vSplat = splat;
 vTerrainPos = (finalWorld * vec4(position, 1.0)).xyz;
@@ -52,6 +63,9 @@ vTerrainNrm = normal;
     };
     if (shaderType === 'fragment') return {
       CUSTOM_FRAGMENT_DEFINITIONS: `
+#ifdef TERRAIN_SPLAT2
+varying vec2 vSplat2;
+#endif
 #ifdef TERRAIN_SPLAT
 varying vec4 vSplat;
 varying vec3 vTerrainPos;
@@ -85,6 +99,15 @@ vec3 terrainAlbedo() {
   vec4 b = max(h - mx, vec4(0.0)) * step(vec4(0.001), w);
   b /= max(b.x + b.y + b.z + b.w, 1e-4);
   vec3 c = l0.rgb * b.x + l1.rgb * b.y + l2.rgb * b.z + l3.rgb * b.w;
+#ifdef TERRAIN_SPLAT2
+  // sand: pale and warm with the dirt layer's grain; snow: patchy at its edge, in broad drifts
+  vec3 sandC = vec3(0.8, 0.73, 0.57) * (0.85 + 0.3 * dot(l1.rgb, vec3(0.333)));
+  float sandW = smoothstep(0.25, 0.6, vSplat2.y + (l1.a - 0.5) * 0.35);
+  c = mix(c, sandC, sandW);
+  vec3 snowC = vec3(0.9, 0.93, 0.97) * (0.97 + 0.03 * l1.a);
+  float snowW = smoothstep(0.3, 0.62, vSplat2.x + (0.5 - texture2D(terrainL3, vTerrainPos.xz / 37.0).a) * 0.35);
+  c = mix(c, snowC, snowW);
+#endif
   return pow(c, vec3(2.2));
 }
 #endif`,
@@ -106,8 +129,15 @@ attribute splat: vec4f;
 varying vSplat: vec4f;
 varying vTerrainPos: vec3f;
 varying vTerrainNrm: vec3f;
+#endif
+#ifdef TERRAIN_SPLAT2
+attribute splat2: vec2f;
+varying vSplat2: vec2f;
 #endif`,
     CUSTOM_VERTEX_MAIN_END: `
+#ifdef TERRAIN_SPLAT2
+vertexOutputs.vSplat2 = vertexInputs.splat2;
+#endif
 #ifdef TERRAIN_SPLAT
 vertexOutputs.vSplat = vertexInputs.splat;
 vertexOutputs.vTerrainPos = (finalWorld * vec4f(vertexInputs.position, 1.0)).xyz;
@@ -116,6 +146,9 @@ vertexOutputs.vTerrainNrm = vertexInputs.normal;
   };
   if (shaderType === 'fragment') return {
     CUSTOM_FRAGMENT_DEFINITIONS: `
+#ifdef TERRAIN_SPLAT2
+varying vSplat2: vec2f;
+#endif
 #ifdef TERRAIN_SPLAT
 varying vSplat: vec4f;
 varying vTerrainPos: vec3f;
@@ -139,7 +172,7 @@ fn tTriplanar(t: texture_2d<f32>, s: sampler, p: vec3f, n: vec3f, scale: f32) ->
   var w = pow(abs(n), vec3f(4.0)); w = w / (w.x + w.y + w.z);
   return textureSample(t, s, p.zy / scale) * w.x + tSample(t, s, p.xz, scale) * w.y + textureSample(t, s, p.xy / scale) * w.z;
 }
-fn terrainAlbedo(splat: vec4f, pos: vec3f, nrm: vec3f) -> vec3f {
+fn terrainAlbedo(splat: vec4f, pos: vec3f, nrm: vec3f, extra: vec2f) -> vec3f {
   let n = normalize(nrm);
   let l0 = tSample(terrainL0, terrainL0Sampler, pos.xz, 3.2);
   let l1 = tSample(terrainL1, terrainL1Sampler, pos.xz, 4.5);
@@ -150,14 +183,22 @@ fn terrainAlbedo(splat: vec4f, pos: vec3f, nrm: vec3f) -> vec3f {
   let mx = max(max(h.x, h.y), max(h.z, h.w)) - 0.22;
   var b = max(h - vec4f(mx), vec4f(0.0)) * step(vec4f(0.001), w);
   b = b / max(b.x + b.y + b.z + b.w, 1e-4);
-  let c = l0.rgb * b.x + l1.rgb * b.y + l2.rgb * b.z + l3.rgb * b.w;
+  var c = l0.rgb * b.x + l1.rgb * b.y + l2.rgb * b.z + l3.rgb * b.w;
+  let sandC = vec3f(0.8, 0.73, 0.57) * (0.85 + 0.3 * dot(l1.rgb, vec3f(0.333)));
+  c = mix(c, sandC, smoothstep(0.25, 0.6, extra.y + (l1.a - 0.5) * 0.35));
+  let snowC = vec3f(0.9, 0.93, 0.97) * (0.97 + 0.03 * l1.a);
+  c = mix(c, snowC, smoothstep(0.3, 0.62, extra.x + (0.5 - textureSample(terrainL3, terrainL3Sampler, pos.xz / 37.0).a) * 0.35));
   return pow(c, vec3f(2.2));
 }
 #endif`,
     // WGSL PBR has no UPDATE_ALBEDO hook; UPDATE_ALPHA sits directly after surfaceAlbedo is declared
     CUSTOM_FRAGMENT_UPDATE_ALPHA: `
 #ifdef TERRAIN_SPLAT
-surfaceAlbedo = surfaceAlbedo * terrainAlbedo(fragmentInputs.vSplat, fragmentInputs.vTerrainPos, fragmentInputs.vTerrainNrm);
+#ifdef TERRAIN_SPLAT2
+surfaceAlbedo = surfaceAlbedo * terrainAlbedo(fragmentInputs.vSplat, fragmentInputs.vTerrainPos, fragmentInputs.vTerrainNrm, fragmentInputs.vSplat2);
+#else
+surfaceAlbedo = surfaceAlbedo * terrainAlbedo(fragmentInputs.vSplat, fragmentInputs.vTerrainPos, fragmentInputs.vTerrainNrm, vec2f(0.0));
+#endif
 #endif`,
   };
   return null;

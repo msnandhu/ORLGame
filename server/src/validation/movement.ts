@@ -10,7 +10,8 @@ export type Verdict = { ok: true } | { ok: false; reason: string };
 export function validateMove(prev: Accepted | null, next: PlayerTransform, nowMs: number, terrain: Terrain): Verdict {
   if (!terrain.inBounds(next.x, next.z)) return { ok: false, reason: 'out_of_bounds' };
   const ground = terrain.heightAt(next.x, next.z);
-  if (next.y < Math.min(ground, terrain.waterLevel - 3) - 2.5) return { ok: false, reason: 'below_ground' };
+  const water = terrain.waterAt(next.x, next.z);
+  if (next.y < Math.min(ground, (water > -1e9 ? water : ground) - 3) - 2.5) return { ok: false, reason: 'below_ground' };
   if (next.y > ground + 80) return { ok: false, reason: 'too_high' };
   const ql = Math.hypot(next.qx, next.qy, next.qz, next.qw);
   if (Math.abs(ql - 1) > 0.05) return { ok: false, reason: 'bad_rotation' };

@@ -53,9 +53,10 @@ export class Environment {
     scene.environmentTexture = probe.cubeTexture;
     scene.environmentIntensity = 0.8;
 
-    scene.fogMode = Scene.FOGMODE_LINEAR;
-    scene.fogColor = new Color3(0.6, 0.7, 0.8);
-    scene.fogStart = 160; scene.fogEnd = 1000;
+    // exponential haze: the valley stays crisp, distant ridges fade into the sky colour
+    scene.fogMode = Scene.FOGMODE_EXP;
+    scene.fogColor = this.sky.horizon.clone();
+    scene.fogDensity = 0.00016;
 
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
     scene.imageProcessingConfiguration.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
@@ -66,8 +67,8 @@ export class Environment {
   removeShadowCaster(m: AbstractMesh) { const i = this.casters.indexOf(m); if (i >= 0) this.casters.splice(i, 1); this.shadow?.removeShadowCaster(m, false); }
 
   apply(p: QualityPreset) {
-    this.scene.fogEnd = p.fogEnd;
-    this.camera.maxZ = p.viewDistance;
+    this.scene.fogDensity = p.haze;
+    this.camera.maxZ = p.islandDistance;
     // shadows
     this.shadow?.dispose(); this.shadow = null;
     if (p.shadows === 'cascaded') {

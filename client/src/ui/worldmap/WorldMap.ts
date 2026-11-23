@@ -33,6 +33,9 @@ export class WorldMap {
   private base: Img | null = null;
   private detail: Img | null = null;
   private detailReq = 0;
+  /** imagery around the player for the HUD minimap outside the valley (4 m per pixel, 2 km across) */
+  localImg: Img | null = null;
+  private localReq: { x: number; z: number } | null = null;
   /** wall-clock time at which to render detail for the current view (0 = none pending) */
   private settleAt = 0;
   private view: View = { cx: 0, cz: 0, mpp: 60 };
@@ -66,9 +69,10 @@ export class WorldMap {
       <div id="wm-bar">
         <button data-act="in"><b>Wheel ↑</b> Zoom In</button><button data-act="out"><b>Wheel ↓</b> Zoom Out</button>
         <button data-act="set"><b>Click</b> Set Marker</button><button data-act="del"><b>Right click</b> Remove Marker</button>
-        <button data-act="legend"><b>L</b> Legend</button><button data-act="details"><b>R</b> Region Details</button><button data-act="close"><b>M</b> Close</button>
+        <button data-act="travel"><b>T</b> Travel to Marker</button><button data-act="legend"><b>L</b> Legend</button><button data-act="details"><b>R</b> Region Details</button><button data-act="close"><b>M</b> Close</button>
       </div>
       <div id="wm-tip" class="wm-panel hidden"></div>
+      <div id="wm-flash" class="wm-panel hidden"></div>
       <div id="wm-loading">Rendering map…</div>`;
     document.body.appendChild(this.root);
     this.canvas = this.root.querySelector('#wm-canvas')!;
@@ -103,8 +107,17 @@ export class WorldMap {
       c.getContext('2d')!.putImageData(new ImageData(m.px as unknown as Uint8ClampedArray<ArrayBuffer>, m.w!, m.h!), 0, 0);
       const img = { canvas: c, x0: m.x0!, z0: m.z0!, x1: m.x1!, z1: m.z1! };
       if (m.id === -1) { this.base = img; this.root.querySelector('#wm-loading')!.classList.add('hidden'); this.drawInsetBase(); }
+      else if (m.id === -2) this.localImg = img;
       else if (m.id === this.detailReq) this.detail = img;
     }
+  }
+
+  /** Keep minimap imagery centred near the player (re-rendered after 600 m of travel). */
+  ensureLocal(x: number, z: number) {
+    if (this.localReq && Math.hypot(this.localReq.x - x, this.localReq.z - z) < 600) return;
+    this.localReq = { x, z };
+    const R = 1024;
+    this.worker.postMessage({ type: 'render', id: -2, x0: x - R, z0: z - R, x1: x + R, z1: z + R, w: 512, h: 512 });
   }
 
   // ------------------------------------------------------------------ exploration
@@ -215,6 +228,7 @@ export class WorldMap {
       if (!this.isOpen) return;
       const k = e.code;
       if (k === 'KeyL') this.toggleLegend();
+      else if (k === 'KeyT') this.travel();
       else if (k === 'KeyR') this.toggleDetails();
       else if (k === 'Equal' || k === 'NumpadAdd') this.zoomAt(this.view.cx, this.view.cz, 0.7);
       else if (k === 'Minus' || k === 'NumpadSubtract') this.zoomAt(this.view.cx, this.view.cz, 1 / 0.7);
@@ -238,11 +252,27 @@ export class WorldMap {
       else if (a === 'legend') this.toggleLegend();
       else if (a === 'details') this.toggleDetails();
       else if (a === 'close') this.onCloseRequest();
+      else if (a === 'travel') this.travel();
     });
     this.root.querySelector('#wm-info')!.addEventListener('click', e => {
       const el = (e.target as HTMLElement).closest('[data-region]') as HTMLElement | null; if (el) this.setRegion(el.dataset.region as RegionId);
     });
   }
+  /** Fast travel to the selected marker (or the latest one); the game decides whether it is allowed. */
+  private travel() {
+    const m = this.selected ?? this.waypoint;
+    if (!m) { this.flash('Set a marker first (click the map)'); return; }
+    this.onTravelRequest(m.x, m.z);
+  }
+  private flashTimer = 0;
+  /** A short message across the top of the map. */
+  flash(msg: string) {
+    const el = this.root.querySelector('#wm-flash') as HTMLElement;
+    el.textContent = msg; el.classList.remove('hidden');
+    clearTimeout(this.flashTimer); this.flashTimer = window.setTimeout(() => el.classList.add('hidden'), 2600);
+  }
+  /** Set by the game: fast travel to a point. */
+  onTravelRequest: (x: number, z: number) => void = () => {};
   /** Set by the game so the Close button behaves like the M key. */
   onCloseRequest: () => void = () => this.close();
 

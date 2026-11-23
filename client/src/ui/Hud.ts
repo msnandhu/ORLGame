@@ -7,6 +7,8 @@ export class Hud {
   readonly mapImg: HTMLCanvasElement;
   /** map marker the player is heading to (set by the world map) */
   waypoint: { x: number; z: number; id: number } | null = null;
+  /** island imagery around the player (from the world map), drawn under the valley's own map */
+  outerImg: { canvas: HTMLCanvasElement; x0: number; z0: number; x1: number; z1: number } | null = null;
   private mini = ($('minimap') as HTMLCanvasElement).getContext('2d')!;
   private tacho = ($('tacho') as HTMLCanvasElement).getContext('2d')!;
   private toastTimer = 0;
@@ -97,6 +99,8 @@ export class Hud {
     const k = W / range;
     ctx.scale(k / scale, k / scale);
     ctx.translate(-(px + t.half) * scale, -(pz + t.half) * scale);
+    const o = this.outerImg;
+    if (o) ctx.drawImage(o.canvas, (o.x0 + t.half) * scale, (o.z0 + t.half) * scale, (o.x1 - o.x0) * scale, (o.z1 - o.z0) * scale);
     ctx.drawImage(this.mapImg, 0, 0);
     // fuel pump & vehicle markers
     const pt = (x: number, z: number) => [(x + t.half) * scale, (z + t.half) * scale];

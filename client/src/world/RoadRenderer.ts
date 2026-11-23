@@ -17,7 +17,7 @@ const LIFT: Record<RoadKind, number> = { highway: 0.07, road: 0.06, street: 0.05
 const PATCH_LIFT = 0.075, SIDEWALK = 2.5, CURB = 0.15, STEP = 2.5, TEX_LEN = 20;
 
 /** Asphalt with painted lines, one texture per road class: u runs across the road, v along 20 m of it. */
-function roadTexture(kind: RoadKind | 'plain', width: number): Uint8Array {
+export function roadTexture(kind: RoadKind | 'plain', width: number): Uint8Array {
   const W = 256, H = 512, d = new Uint8Array(W * H * 4), rnd = mulberry32(kind.length * 31 + 7);
   const lines: { at: number; w: number; dash: boolean; c: [number, number, number] }[] = [];
   const white: [number, number, number] = [228, 228, 220], yellow: [number, number, number] = [226, 180, 40];

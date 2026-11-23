@@ -1,4 +1,5 @@
 import { mulberry32 } from '../math/noise';
+import { VALLEY_EXITS } from './island';
 
 /**
  * Hand-authored layout of the 2.56 km region around Redstone Valley: three settlements, a highway loop and
@@ -78,6 +79,11 @@ export const ROAD_DEFS: RoadDef[] = [
   { id: 'l-city', name: 'Plain City Link', kind: 'road', ctrl: [[city.cx + city.hx, 120], [1135, 120]] },
   { id: 'l-town', name: 'Millbrook Link', kind: 'road', ctrl: [[town.cx, town.cz - town.hz], [town.cx, -1000]] },
   { id: 'l-village', name: 'Ashby Link', kind: 'road', ctrl: [[village.cx, village.cz + village.hz], [-420, 1085]] },
+  // exits from Highway 1 to the island beyond the valley (the island's highways continue from the valley edge)
+  { id: 'l-north', name: 'Glacier Highway', kind: 'highway', ctrl: [[VALLEY_EXITS.north.x, VALLEY_EXITS.north.z], [VALLEY_EXITS.north.x, -850]] },
+  { id: 'l-west', name: 'Forest Highway', kind: 'highway', ctrl: [[VALLEY_EXITS.west.x, VALLEY_EXITS.west.z], [-1110, VALLEY_EXITS.west.z]] },
+  { id: 'l-east', name: 'Hill Highway', kind: 'highway', ctrl: [[VALLEY_EXITS.east.x, VALLEY_EXITS.east.z], [1150, VALLEY_EXITS.east.z]] },
+  { id: 'l-south', name: 'Plains Road', kind: 'road', ctrl: [[VALLEY_EXITS.south.x, VALLEY_EXITS.south.z], [VALLEY_EXITS.south.x, 1030]] },
 ];
 // links end exactly on the highway (its spline bulges away from the control polygon)
 {

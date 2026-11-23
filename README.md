@@ -1,6 +1,6 @@
 # OFF-ROAD LEGENDS
 
-Browser open-world multiplayer off-road game. **Current version: v0.6.0, towns, highways and road cars.** The world is now 2.56 km across. It has a city, a town and a village with solid buildings, a four-lane highway loop with link roads, six drivable road cars (racing, common and luxury) and AI traffic. Phase 3 (v0.5) added the character engine, and Phase 2 (v0.4) the data-driven off-road vehicles, driving modes and damage.
+Browser open-world multiplayer off-road game. **Current version: v0.8.0, the whole island is drivable.** The world is a 1,170 km² island with four regions (Snow, Deep Forest, Hill and Plain). Its terrain streams in around you with snow, ice, sand, sea, lakes, rivers, waterfalls, highways and bridges, and you can drive anywhere on it. In the middle sits the detailed 2.56 km valley around Plain City, with base camp, a town and a village, solid buildings, a highway loop, six road cars and AI traffic. The world map (M) shows the whole island and each region and lets you set markers and fast travel to them. Phase 3 (v0.5) added the character engine, and Phase 2 (v0.4) the data-driven off-road vehicles, driving modes and damage.
 
 Stack: TypeScript (strict) · Babylon.js 9 (WebGPU, falling back to WebGL2) · Havok physics + custom 240 Hz drivetrain/tyre simulation · Colyseus 0.18 server-authoritative multiplayer · Vite · Vitest.
 
@@ -44,6 +44,7 @@ Single player works without the server. For multiplayer, start the server, then 
 | World map, help, pause, quick save | M, H, P or Esc, F5 | Start |
 | On the world map: zoom, pan, set / remove marker | Wheel or + / −, drag, click / right-click or Delete | |
 | On the world map: whole island / regions, legend, region details, centre on me | 0, 1–4, L, R, C | |
+| On the world map: fast travel to the selected (or newest) marker, single player | T | |
 
 ## Repository layout
 
@@ -54,6 +55,7 @@ shared/   @orl/shared  deterministic simulation used by client AND server
   constants/ types/ schemas/ events/
 client/   @orl/client  Babylon.js game client
   engine/ (WebGPU→WebGL2)  physics/ (Havok)  rendering/  world/ (terrain, roads, buildings, traffic)  vehicles/  characters/
+  world/island/ (streamed island terrain + worker, sea, rivers, island roads, bridges)
   cameras/  input/  audio/  ui/ (HUD, world map + map worker)  multiplayer/  save/  assets/  config/  core/ (app, logger, errors)
 server/   @orl/server  Colyseus server
   rooms/FreeRoamRoom.ts  validation/movement.ts  app.ts  index.ts

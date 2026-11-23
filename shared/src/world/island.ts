@@ -412,8 +412,9 @@ export class Island {
       h += w.hill * Math.max(cone, 140 + M.ridged(x / 1900 + 3, z / 1900, 5) * 460 + N.fbm(x / 600, z / 600, 3) * 50);
     }
     if (w.snow > 0) {
-      const base = 1100 + Math.min(this.snowDepth, 6000) * 0.22;
-      h += w.snow * (base + M.ridged(x / 2300 + 9, z / 2300, 5) * 1150 + N.fbm(x / 650, z / 650, 3) * 140);
+      // high valleys rise inland (roads can climb them); ridges stand above, and Glacier Peak above all
+      const base = 420 + Math.min(this.snowDepth, 7000) * 0.11;
+      h += w.snow * (base + M.ridged(x / 2300 + 9, z / 2300, 5) * 950 + N.fbm(x / 650, z / 650, 3) * 120);
     }
     // Glacier Peak: summit pinned at 4,872 m
     const dpk = Math.hypot(x - this.peak.x, z - this.peak.z);

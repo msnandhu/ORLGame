@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0: The whole island is drivable (stage 2 of the four-region world)
+
+- **Drive anywhere on the 1,170 km² island.** Leave the valley by any of its four exits (north, west and east onto the island highways, south onto the coast road) and keep going: to the snowfields and Glacier Peak in the north, the Deep Forest in the west, the Hill Region in the east and the farmland and beaches of the Plain Region in the south.
+  - The ground outside the valley is generated in 128 m tiles at the same 2 m detail as the valley, from the same island data the world map uses. Physics and graphics read the same tiles, so what you see is what you drive on.
+  - **New surfaces:** snow (μ 0.36), ice on the frozen lake (μ 0.12) and beach sand (μ 0.6, soft), each with its own rolling resistance and sinkage, plus grass, dirt, mud, rock and gravel as before. The Snow driving mode now has real snow to drive on.
+  - **Water:** the sea all round the island, four lakes (the frozen one is solid ice you can drive on), three rivers with white water where they fall, and fords where trails cross them (no deeper than 0.4 m).
+  - **Roads:** 13 island highways and roads are graded to their class (highways at most 9 %, roads 13 %) and cut passes through the hills, with **bridges** (deck, parapets and piers) where they cross water. 17 trails reach the remote places.
+- **Graphics:** the island streams in around you in levels of detail, from 2 m near you to coarse terrain out to the far coast (8 km on Low, 25 km on High, 40 km on Ultra), built by background workers so driving stays smooth. Snow and sand blend into the terrain texture, each region has its own colour (lush jungle, golden plains, cool snowfields), trees by region (jungle, broadleaf, pine), and the haze now fades distant ridges into the sky.
+- **Minimap** shows the island around you once you are outside the valley.
+- **Fast travel to a marker:** on the world map, press **T** (or *Travel to Marker*) to go to the selected or newest marker, in your vehicle if you are driving. It lands on the nearest dry, level ground and waits for the terrain to load. Single player only.
+
+**What is playable now and what is planned.** All of the island's ground, water and roads are playable. The 53 places on the map (villages, gang bases, garages, labs, caves, the cable car and so on) are marked, and their sites are clear of trees, but they are not built in 3D yet. That is stage 3. Traffic, buildings and NPCs are still only in the valley around Plain City.
+
 ## 0.7.0: The island and its world map (stage 1 of the four-region world)
 
 - **The island.** The world is now laid out as an island of **1,170 km²** after your reference maps: the **Snow Region** in the north (280 km², LV 20–40), the **Deep Forest Region** in the west (320 km², LV 15–35), the **Hill Region** in the east (120 km², LV 10–20) and the **Plain Region** in the south (450 km², LV 1–20).

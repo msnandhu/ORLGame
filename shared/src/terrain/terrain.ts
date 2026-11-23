@@ -1,8 +1,10 @@
+import { OuterWorld } from '../world/outer';
+import { Island } from '../world/island';
 import { Noise2D, mulberry32, clamp, lerp, smoothstep } from '../math/noise';
 import { ROAD_DEFS, SETTLEMENTS, buildRoad, planSettlements, type Road, type Settlement, type Building, type Lot, type ParkingSpot } from '../world/layout';
 
-export enum Surface { Grass = 0, Dirt = 1, Mud = 2, Rock = 3, Gravel = 4, Asphalt = 5 }
-export const SURFACE_NAMES = ['Grass', 'Dirt trail', 'Mud', 'Rock', 'Gravel', 'Asphalt'];
+export enum Surface { Grass = 0, Dirt = 1, Mud = 2, Rock = 3, Gravel = 4, Asphalt = 5, Snow = 6, Sand = 7, Ice = 8 }
+export const SURFACE_NAMES = ['Grass', 'Dirt trail', 'Mud', 'Rock', 'Gravel', 'Asphalt', 'Snow', 'Sand', 'Ice'];
 
 export interface Boulder { x: number; y: number; z: number; r: number }
 export interface StaticBox { cx: number; cy: number; cz: number; hx: number; hy: number; hz: number; yaw: number; kind: string; /** index into Terrain.buildings for buildings */ ref?: number }
@@ -15,6 +17,13 @@ export interface Tree { x: number; z: number; y: number; r: number; h: number; k
  * square with Plain City, Millbrook town and Ashby Hollow village, a highway loop and connecting roads.
  * Pure data, no rendering.
  */
+let _outer: OuterWorld | null = null;
+/** One island model per process: building it takes a few hundred milliseconds and it never changes. */
+export function sharedOuterWorld(coreHalf = 1280): OuterWorld {
+  if (!_outer || _outer.coreHalf !== coreHalf) _outer = new OuterWorld(new Island(), coreHalf);
+  return _outer;
+}
+
 export class Terrain {
   readonly size = 2560;          // metres per side
   readonly cell = 2;             // metres between height samples
@@ -45,7 +54,11 @@ export class Terrain {
   private grid = new Map<number, { b: number[]; t: number[] }>();
   private readonly gcell = 16;
 
+  /** The island beyond the valley (shared by every Terrain: it is a pure function of position). */
+  readonly outer: OuterWorld;
+
   constructor(seed = 20261123) {
+    this.outer = sharedOuterWorld(this.size / 2);
     this.n = this.size / this.cell + 1;
     this.half = this.size / 2;
     const N = this.n;
@@ -78,6 +91,13 @@ export class Terrain {
     };
 
     const riverZ = (x: number) => 230 + 70 * Math.sin(x / 160) + 25 * Math.sin(x / 61 + 1.3);
+    // the island's ground near the valley edge, sampled every 8 m (the stitch below makes the edge exact)
+    const BC = 8, BN = this.size / BC + 1, band = new Float32Array(BN * BN).fill(NaN);
+    const bandHeight = (x: number, z: number) => {
+      const fx = (x + this.half) / BC, fz = (z + this.half) / BC, i = Math.min(BN - 2, Math.floor(fx)), j = Math.min(BN - 2, Math.floor(fz)), u = fx - i, v = fz - j;
+      const g = (a: number, b: number) => { const k = b * BN + a; if (Number.isNaN(band[k])) band[k] = this.outer.groundAt(a * BC - this.half, b * BC - this.half); return band[k]; };
+      return (g(i, j) * (1 - u) + g(i + 1, j) * u) * (1 - v) + (g(i, j + 1) * (1 - u) + g(i + 1, j + 1) * u) * v;
+    };
     for (let j = 0; j < N; j++) {
       for (let i = 0; i < N; i++) {
         const x = i * this.cell - this.half, z = j * this.cell - this.half;
@@ -89,8 +109,7 @@ export class Terrain {
         // Roads cut passes through them.
         const cheb = Math.max(Math.abs(x), Math.abs(z));
         const ring = smoothstep(330, 470, cheb) * (1 - smoothstep(560, 720, cheb));
-        const edge = smoothstep(1130, 1270, cheb);
-        const rim = Math.max(ring, edge);
+        const rim = ring;
         const massif = smoothstep(220, 60, Math.hypot(x + 260, z + 250));
         const roadE = this.roadEdge[j * N + i];
         const pass = smoothstep(15, 170, roadE);
@@ -125,9 +144,12 @@ export class Terrain {
         if (h < this.waterLevel - 0.5) h = lerp(h, this.waterLevel - 0.5, ford2);
         // Small-scale bumps (ruts / roughness)
         h += noise.noise(x / 6, z / 6) * (0.18 + mount * 0.6 + crawl * 0.15) * (1 - onTrail * 0.7) * (1 - plat * 0.85);
+        // the valley's edge blends into the island beyond it, meeting it exactly at the border
+        const toIsland = smoothstep(1040, 1272, cheb);
+        if (toIsland > 0) h = lerp(h, bandHeight(x, z), toIsland);
         const k = j * N + i;
         this.heights[k] = h;
-        this.mudDepth[k] = mudAmt;
+        this.mudDepth[k] = mudAmt * (1 - toIsland);
       }
     }
     // Ease trail gradients: blend trail corridors toward a heavily blurred height field
@@ -150,7 +172,16 @@ export class Terrain {
         this.heights[k] += (target - this.heights[k]) * w * 0.9;
       }
     }
-    this.gradeRoads();
+    const carriageway = this.gradeRoads();
+    // stitch: the last 20 m meet the island's tiles exactly at the border. Carriageways are left alone: their
+    // profiles already end on the island's height at the exit, and blending them would put a step in the road.
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const x = i * this.cell - this.half, z = j * this.cell - this.half, cheb = Math.max(Math.abs(x), Math.abs(z));
+      if (cheb < 1258) { if (i > 12 && i < N - 13 && j > 12) i = N - 13; continue; }
+      const k = j * N + i;
+      if (carriageway[k] && cheb < 1279) continue;
+      this.heights[k] = lerp(this.heights[k], this.outer.groundAt(x, z), smoothstep(1258, 1280, cheb));
+    }
     // Classify surfaces from slope and masks
     for (let j = 0; j < N; j++) {
       for (let i = 0; i < N; i++) {
@@ -227,13 +258,16 @@ export class Terrain {
    * with shoulders, and embankments or cuttings blending back to the land. Highways go first so the roads that
    * join them meet their surface.
    */
-  private gradeRoads() {
+  private gradeRoads(): Uint8Array {
     const order = [...this.roads].sort((a, b) => ['highway', 'road', 'street'].indexOf(a.kind) - ['highway', 'road', 'street'].indexOf(b.kind));
     const N = this.n, bestD = new Float32Array(N * N).fill(1e9), bestH = new Float32Array(N * N);
     // carriageways already graded: later (lesser) roads join them without reshaping them
     const locked = new Uint8Array(N * N);
     for (const r of order) {
       const P = r.pts, raw = P.map(([x, z]) => this.heightAt(x, z));
+      // points in the stitch band take the island road's height, so the carriageway meets it level at the exit
+      const atEdge = P.map(([x, z]) => Math.max(Math.abs(x), Math.abs(z)) >= 1250);
+      P.forEach(([x, z], i) => { if (atEdge[i]) raw[i] = this.outer.groundAt(x, z); });
       let prof = raw.slice();
       const win = r.kind === 'highway' ? 14 : r.kind === 'road' ? 8 : 0;
       for (let pass = 0; pass < 3 && win > 0; pass++) {
@@ -260,7 +294,7 @@ export class Terrain {
       const pinned: number[] = [];
       for (let i = 0; i < P.length; i++) {
         const ci = Math.round((P[i][0] + this.half) / this.cell), cj = Math.round((P[i][1] + this.half) / this.cell);
-        if ((!r.closed && (i === 0 || i === P.length - 1)) || locked[clamp(cj, 0, N - 1) * N + clamp(ci, 0, N - 1)]) pinned.push(i);
+        if ((!r.closed && (i === 0 || i === P.length - 1)) || atEdge[i] || locked[clamp(cj, 0, N - 1) * N + clamp(ci, 0, N - 1)]) pinned.push(i);
       }
       const pin = () => { for (const i of pinned) prof[i] = Math.max(raw[i], this.waterLevel + 1.6); };
       for (let rep = 0; rep < 4; rep++) {
@@ -284,6 +318,7 @@ export class Terrain {
       }
       for (const k of touched) if (bestD[k] === -1) { locked[k] = 1; bestD[k] = 1e9; }
     }
+    return locked;
   }
 
   /** Buildings, fuel stations and car lots of the three settlements, as static colliders. */
@@ -488,6 +523,14 @@ export class Terrain {
   /** Obstacles whose bounds overlap the circle (x,z,r). */
   query(x: number, z: number, r: number, outB: Set<number>, outT: Set<number>) {
     outB.clear(); outT.clear();
+    if (Math.abs(x) + r > this.half || Math.abs(z) + r > this.half) {
+      const T = OuterWorld.TILE;
+      for (let ti = Math.floor((x - r) / T); ti <= Math.floor((x + r) / T); ti++) for (let tj = Math.floor((z - r) / T); tj <= Math.floor((z + r) / T); tj++) {
+        if (Math.abs((ti + 0.5) * T) < this.half && Math.abs((tj + 0.5) * T) < this.half) continue;
+        const tile = this.outer.tile(ti, tj), key = this.outer.tileKey(ti, tj);
+        tile.trees.forEach((t, k) => { if (Math.abs(t.x - x) < r + 2 && Math.abs(t.z - z) < r + 2) outT.add(Terrain.OUTER_TREE + key * 1024 + k); });
+      }
+    }
     const c0x = Math.floor((x - r) / this.gcell), c1x = Math.floor((x + r) / this.gcell);
     const c0z = Math.floor((z - r) / this.gcell), c1z = Math.floor((z + r) / this.gcell);
     for (let cx = c0x; cx <= c1x; cx++) for (let cz = c0z; cz <= c1z; cz++) {
@@ -498,10 +541,19 @@ export class Terrain {
     }
   }
 
-  inBounds(x: number, z: number) { return Math.abs(x) < this.half - 2 && Math.abs(z) < this.half - 2; }
+  /** Keep a point inside the playable world (the island and its sea margin), with a pad in metres. */
+  clampToWorld(p: { x: number; z: number }, pad = 0) {
+    const I = this.outer.island;
+    p.x = clamp(p.x, I.minX + 200 + pad, I.maxX - 200 - pad); p.z = clamp(p.z, I.minZ + 200 + pad, I.maxZ - 200 - pad);
+  }
+  /** Inside the island's bounds (the sea around it included). */
+  inBounds(x: number, z: number) { const I = this.outer.island; return x > I.minX + 200 && x < I.maxX - 200 && z > I.minZ + 200 && z < I.maxZ - 200; }
+  /** Inside the detailed valley (its own heightfield); outside it, samples come from the island's tiles. */
+  inCore(x: number, z: number) { return Math.abs(x) < this.half && Math.abs(z) < this.half; }
 
   /** Height using the same triangle split as the rendered mesh. */
   heightAt(x: number, z: number): number {
+    if (!this.inCore(x, z)) return this.outer.heightAt(x, z);
     const N = this.n;
     const fx = clamp((x + this.half) / this.cell, 0, N - 1.0001);
     const fz = clamp((z + this.half) / this.cell, 0, N - 1.0001);
@@ -515,6 +567,7 @@ export class Terrain {
   }
 
   normalAt(x: number, z: number): [number, number, number] {
+    if (!this.inCore(x, z)) return this.outer.normalAt(x, z);
     const N = this.n;
     const fx = clamp((x + this.half) / this.cell, 0, N - 1.0001);
     const fz = clamp((z + this.half) / this.cell, 0, N - 1.0001);
@@ -536,9 +589,18 @@ export class Terrain {
     const j = clamp(Math.round((z + this.half) / this.cell), 0, N - 1);
     return j * N + i;
   }
-  surfaceAt(x: number, z: number): Surface { return this.surface[this.idx(x, z)]; }
-  mudAt(x: number, z: number): number { return this.mudDepth[this.idx(x, z)]; }
-  waterDepthAt(x: number, z: number): number { return Math.max(0, this.waterLevel - this.heightAt(x, z)); }
+  surfaceAt(x: number, z: number): Surface { return this.inCore(x, z) ? this.surface[this.idx(x, z)] : this.outer.surfaceAt(x, z) as Surface; }
+  mudAt(x: number, z: number): number { return this.inCore(x, z) ? this.mudDepth[this.idx(x, z)] : this.outer.mudAt(x, z); }
+  /** Water surface height here: the valley's river level, or the island's sea, lakes and rivers (-Infinity where dry). */
+  waterAt(x: number, z: number): number { return this.inCore(x, z) ? this.waterLevel : this.outer.waterAt(x, z); }
+  waterDepthAt(x: number, z: number): number { return Math.max(0, this.waterAt(x, z) - this.heightAt(x, z)); }
+  /** Tree by index from `query`: the valley's trees, then trees of the island tiles (stable ids per tile). */
+  treeAt(i: number): Tree {
+    if (i < Terrain.OUTER_TREE) return this.trees[i];
+    const k = i - Terrain.OUTER_TREE;
+    return this.outer.tileByKey(Math.floor(k / 1024)).trees[k % 1024];
+  }
+  static readonly OUTER_TREE = 1 << 30;
 
   /**
    * Ray vs terrain + boulders. Returns distance along the (unit) direction, or -1.

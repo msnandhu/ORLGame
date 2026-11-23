@@ -14,306 +14,175 @@ import type { Vehicle, ImpactEvent } from '@orl/shared';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import { treadTexture } from '../assets/proceduralTextures';
+import { Kit, carMats } from './carKit';
+import { buildDesign } from './designs';
 
 /**
- * Original procedural models of the fictional vehicles ("wagon" = Ranger TX4, "crawler" = Bramble RC2), assembled
- * from primitives in code and driven entirely by the shared vehicle simulation. The style, paint and options come
- * from the vehicle's data spec. Body panels dent where the simulation reports impacts.
+ * Original procedural models of the fictional vehicles, each inspired by a real-world type of car (see designs.ts):
+ * lofted body panels, a glasshouse with pillars and tinted glass, lamps, grilles, trim and multi-part wheels with
+ * brakes, all built in code and driven entirely by the shared vehicle simulation. Body panels dent where the
+ * simulation reports impacts.
  */
-const COCKPIT_HIDDEN = new Set(['cab', 'rack', 'lightbar', 'lightbar-led', 'rear-glass', 'side-glass', 'jerrycan', 'cage']);
+const COCKPIT_HIDDEN = new Set(['cab', 'rack', 'lightbar', 'lightbar-led', 'rear-glass', 'side-glass', 'jerrycan', 'cage', 'windshield', 'ws-frame', 'seal', 'wing', 'wing-plate', 'wing-post', 'spoiler', 'spoiler-side', 'roof-scoop', 'snorkel', 'snorkel-head']);
 /** Meshes whose vertices are pushed in by impacts. */
-const DENTABLE = new Set(['tub', 'cab', 'hood']);
+const DENTABLE = new Set(['tub', 'tub-int', 'cab', 'roof', 'hood']);
+
+/** Per-car finish: paint type, wheel and brake caliper colours. */
+const FINISH: Record<string, { metallic: number; rim: [number, number, number]; rimMetal: number; caliper: [number, number, number] }> = {
+  'ranger-tx4': { metallic: 0.1, rim: [0.16, 0.16, 0.17], rimMetal: 0.5, caliper: [0.2, 0.2, 0.2] },
+  'bramble-rc2': { metallic: 0.1, rim: [0.05, 0.05, 0.055], rimMetal: 0.4, caliper: [0.2, 0.2, 0.2] },
+  'vanta-gt': { metallic: 0.35, rim: [0.05, 0.05, 0.055], rimMetal: 0.7, caliper: [0.95, 0.75, 0.05] },
+  'strix-r2': { metallic: 0.2, rim: [0.72, 0.55, 0.18], rimMetal: 0.9, caliper: [0.8, 0.06, 0.04] },
+  pella: { metallic: 0.6, rim: [0.68, 0.69, 0.7], rimMetal: 0.9, caliper: [0.25, 0.25, 0.26] },
+  corvan: { metallic: 0.65, rim: [0.62, 0.63, 0.64], rimMetal: 0.9, caliper: [0.25, 0.25, 0.26] },
+  halcyon: { metallic: 0.7, rim: [0.82, 0.83, 0.85], rimMetal: 1, caliper: [0.12, 0.12, 0.13] },
+  'solenne-gt': { metallic: 0.7, rim: [0.16, 0.165, 0.17], rimMetal: 0.9, caliper: [0.7, 0.05, 0.05] },
+};
+
+type P2 = [number, number];
+const rot2 = (pts: P2[], a: number): P2[] => pts.map(([x, y]) => [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a)]);
+/** A tapered spoke from the hub (radius r0, angle th) to the rim (r1, th + sweep). */
+function spoke(th: number, r0: number, r1: number, w0: number, w1: number, sweep = 0): P2[] {
+  const c0: P2 = [Math.cos(th) * r0, Math.sin(th) * r0], c1: P2 = [Math.cos(th + sweep) * r1, Math.sin(th + sweep) * r1];
+  const dx = c1[0] - c0[0], dy = c1[1] - c0[1], l = Math.hypot(dx, dy) || 1, px = -dy / l, py = dx / l;
+  return [[c0[0] - px * w0 / 2, c0[1] - py * w0 / 2], [c1[0] - px * w1 / 2, c1[1] - py * w1 / 2], [c1[0] + px * w1 / 2, c1[1] + py * w1 / 2], [c0[0] + px * w0 / 2, c0[1] + py * w0 / 2]];
+}
 
 export class VehicleView {
   readonly root: TransformNode;
-  readonly meshes: Mesh[] = [];
+  meshes: Mesh[] = [];
   private wheels: { steer: TransformNode; spin: TransformNode }[] = [];
-  private brake: PBRMaterial; private head: PBRMaterial;
+  private brake: PBRMaterial; private head: PBRMaterial; private reverse: PBRMaterial;
   private lamps: SpotLight[] = [];
   headlightsOn = false;
   private tyreScale: TransformNode[] = [];
   private loose: { mesh: Mesh; region: 'front' | 'rear'; base: number }[] = [];
-
-  private paint: PBRMaterial;
-  /** lite: no headlight beams and fewer wheel parts (AI traffic and far parked cars) */
+  private paints: PBRMaterial[] = [];
+  /** lite: no headlight beams and simpler parts, merged into a few draw calls (AI traffic and far parked cars) */
   constructor(scene: Scene, private v: Vehicle, paintOverride?: Color3, lite = false) {
-    const look = v.spec.look;
+    const look = v.spec.look, sp = v.spec;
     const paint = paintOverride ?? new Color3(...look.paint);
     this.root = new TransformNode('vehicle', scene);
     this.root.rotationQuaternion = Quaternion.Identity();
-    const mat = (n: string, c: Color3, r: number, m = 0) => { const x = new PBRMaterial(n, scene); x.albedoColor = c; x.roughness = r; x.metallic = m; return x; };
-    const body = mat('paint', paint, 0.35, 0.3); body.clearCoat.isEnabled = true; body.clearCoat.intensity = 0.8; body.clearCoat.roughness = 0.12;
-    this.paint = body;
-    const dark = mat('trim', new Color3(0.11, 0.12, 0.13), 0.7, 0.1);
-    const steel = mat('steel', new Color3(0.42, 0.43, 0.45), 0.42, 0.7);
-    const glass = mat('glass', new Color3(0.12, 0.16, 0.2), 0.05, 0.1); glass.alpha = 0.32;
-    this.head = mat('headlamp', new Color3(1, 1, 1), 0.2); this.head.emissiveColor = new Color3(1, 0.95, 0.82); this.head.emissiveIntensity = 0.6;
-    this.brake = mat('brakelamp', new Color3(0.35, 0, 0), 0.3); this.brake.emissiveColor = new Color3(1, 0.1, 0); this.brake.emissiveIntensity = 0.3;
+    const fin = FINISH[sp.id] ?? { metallic: 0.5, rim: [0.6, 0.6, 0.62], rimMetal: 0.9, caliper: [0.3, 0.3, 0.3] };
+    const m = carMats(scene, paint, new Color3(...look.accent), { metallic: fin.metallic, rim: new Color3(...fin.rim), rimMetal: fin.rimMetal, caliper: new Color3(...fin.caliper) });
+    this.paints.push(m.paint);
+    this.head = m.head; this.brake = m.brake; this.reverse = m.reverse;
+    const kit = new Kit(scene, this.root, m, lite);
+    const info = buildDesign(kit, sp);
+    this.meshes = kit.meshes;
+    this.loose = kit.loose;
 
-    const box = (n: string, w: number, h: number, d: number, m: PBRMaterial, x: number, y: number, z: number, rx = 0) => {
-      const b = MeshBuilder.CreateBox(n, { width: w, height: h, depth: d }, scene);
-      b.parent = this.root; b.position.set(x, y, z); b.rotation.x = rx; b.material = m; this.meshes.push(b); return b;
-    };
-    const cyl = (n: string, r: number, len: number, m: PBRMaterial, x: number, y: number, z: number, axis: 'x' | 'y' | 'z') => {
-      const c = MeshBuilder.CreateCylinder(n, { diameter: r * 2, height: len, tessellation: 12 }, scene);
-      c.parent = this.root; c.position.set(x, y, z); if (axis === 'x') c.rotation.z = Math.PI / 2; if (axis === 'z') c.rotation.x = Math.PI / 2;
-      c.material = m; this.meshes.push(c); return c;
-    };
-    // ---- body: side profiles extruded across the width (original design, built in code) ----
-    const ext = (n: string, profile: [number, number][], width: number, m: PBRMaterial, x = 0) => {
-      const shape = profile.map(([z, y]) => new Vector3(z, 0, y));
-      const e = MeshBuilder.ExtrudePolygon(n, { shape, depth: width, sideOrientation: Mesh.DEFAULTSIDE, updatable: DENTABLE.has(n) }, scene, earcut);
-      // polygon plane XZ -> vehicle ZY plane, extrusion (-Y) -> across X, centred
-      e.bakeTransformIntoVertices(Matrix.FromValues(0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, x + width / 2, 0, 0, 1));
-      e.parent = this.root; e.material = m; this.meshes.push(e); return e;
-    };
-    if (look.style === 'crawler') {
-    // ---- short open-top crawler with a tube roll cage ----
-    const cfz = v.spec.wheelFrontZ, crz = v.spec.wheelRearZ, cR = 0.66, cY = -0.5, cbot = -0.2;
-    const carch = (cz: number): [number, number][] => {
-      const a0 = Math.asin((cbot - cY) / cR), pts: [number, number][] = [];
-      for (let i = 0; i <= 12; i++) { const a = Math.PI - a0 - (i / 12) * (Math.PI - 2 * a0); pts.push([cz + cR * Math.cos(a), cY + cR * Math.sin(a)]); }
-      return pts;
-    };
-    ext('tub', [[-1.95, cbot], ...carch(crz), ...carch(cfz), [1.9, cbot], [1.98, 0.12], [1.9, 0.3], [0.75, 0.4], [0.62, 0.38], [-1.95, 0.36]], 1.66, body);
-    ext('hood', [[1.86, 0.3], [0.78, 0.41], [0.78, 0.47], [1.7, 0.36]], 1.3, dark);
-    box('frame', 1.0, 0.14, 3.6, dark, 0, -0.32, 0);
-    box('skid', 0.9, 0.05, 1.4, steel, 0, -0.42, 0.4);
-    const tube = (n: string, pts: [number, number, number][], r = 0.035, m = dark) => {
-      const t = MeshBuilder.CreateTube(n, { path: pts.map(p => new Vector3(...p)), radius: r, tessellation: 8, cap: Mesh.CAP_ALL }, scene);
-      t.parent = this.root; t.material = m; this.meshes.push(t); return t;
-    };
-    // roll cage: A pillars, roof hoop, B hoop, rear down-bars
-    for (const sx of [-0.74, 0.74]) {
-      tube('cage', [[sx, 0.4, 0.66], [sx * 0.96, 1.25, 0.05], [sx * 0.96, 1.28, -0.75], [sx, 0.36, -0.95]]);
-      tube('cage', [[sx * 0.96, 1.28, -0.75], [sx, 0.38, -1.85]]);
-      box('slider', 0.1, 0.08, 1.7, steel, sx * 1.2, -0.26, 0);
-    }
-    tube('cage', [[-0.71, 1.25, 0.05], [0.71, 1.25, 0.05]]);
-    tube('cage', [[-0.71, 1.28, -0.75], [0.71, 1.28, -0.75]]);
-    tube('cage', [[-0.71, 1.27, -0.35], [0.71, 1.27, -0.35]], 0.025);
-    // windscreen frame (no glass), dash, seats, steering wheel
-    const ws = box('windshield', 1.3, 0.42, 0.02, glass, 0, 0.62, 0.55, -0.35); ws.visibility = 0.6;
-    box('dash', 1.4, 0.18, 0.25, dark, 0, 0.42, 0.42);
-    for (const sx of [-0.38, 0.38]) { box('seat', 0.46, 0.12, 0.5, dark, sx, 0.2, -0.4); box('seat', 0.46, 0.6, 0.1, dark, sx, 0.5, -0.66, -0.15); }
-    const sw = MeshBuilder.CreateTorus('steering', { diameter: 0.36, thickness: 0.035, tessellation: 20 }, scene);
-    sw.parent = this.root; sw.position.set(0.38, 0.62, 0.22); sw.rotation.x = -1.1; sw.material = dark; this.meshes.push(sw);
-    // tube bumpers, winch, round lamps, rear-mounted spare lying on the deck
-    this.loose.push({ mesh: tube('bumper-f', [[-0.95, -0.12, 2.02], [0.95, -0.12, 2.02]], 0.06, steel), region: 'front', base: 0 });
-    tube('bumper-f-hoop', [[-0.5, -0.12, 2.02], [-0.4, 0.3, 2.1], [0.4, 0.3, 2.1], [0.5, -0.12, 2.02]], 0.04, steel);
-    cyl('winch', 0.1, 0.55, dark, 0, 0.0, 2.08, 'x');
-    for (const sx of [-0.62, 0.62]) { cyl('headlight', 0.11, 0.05, this.head, sx, 0.28, 1.95, 'z'); cyl('bezel', 0.14, 0.08, dark, sx, 0.28, 1.93, 'z'); }
-    this.loose.push({ mesh: tube('bumper-r', [[-0.95, -0.1, -2.0], [0.95, -0.1, -2.0]], 0.06, steel), region: 'rear', base: 0 });
-    for (const sx of [-0.78, 0.78]) box('taillight', 0.12, 0.12, 0.04, this.brake, sx, 0.2, -1.97);
-    const spare = cyl('spare', 0.45, 0.3, dark, 0, 0.62, -1.42, 'y'); spare.rotation.x = 0.35;
-    box('lightbar', 1.0, 0.08, 0.08, dark, 0, 1.36, 0.0);
-    for (let i = 0; i < 4; i++) box('lightbar-led', 0.16, 0.05, 0.02, this.head, -0.36 + i * 0.24, 1.36, 0.05);
-    box('fender-f', 0.3, 0.03, 0.8, mat('accent', new Color3(...look.accent), 0.6), 0.86, 0.33, cfz);
-    box('fender-f', 0.3, 0.03, 0.8, mat('accent2', new Color3(...look.accent), 0.6), -0.86, 0.33, cfz);
-    if (look.snorkel) { cyl('snorkel', 0.06, 0.95, dark, -0.92, 0.75, 0.6, 'y'); }
-    } else if (look.style === 'coupe' || look.style === 'hatch' || look.style === 'sedan') {
-    // ---- road cars: original low-slung coupe, hot hatch and saloon bodies, sized from the spec ----
-    const sp = v.spec, st = look.style, L = sp.halfExtents[2], W = sp.halfExtents[0] * 2 - 0.02, Wg = W * 0.84;
-    const sag = (sp.mass * 9.81 / 4) / sp.springRate, yc = sp.mountY - sp.restLength + sag, ground = yc - sp.wheelRadius;
-    const b = ground + (st === 'coupe' ? 0.12 : 0.15), seatY = look.seat[1];
-    const bl = seatY + (st === 'coupe' ? 0.4 : 0.47), roof = seatY + (st === 'coupe' ? 0.9 : st === 'hatch' ? 1.0 : 0.97);
-    const Lf = L + 0.06, Lr = -(L + 0.04);
-    const nose = b + (st === 'coupe' ? 0.3 : 0.38);
-    const g = st === 'coupe' ? { cowl: 0.2 * L, rf: -0.08 * L, rr: -0.36 * L, rb: -0.7 * L }
-      : st === 'hatch' ? { cowl: 0.36 * L, rf: 0.04 * L, rr: Lr + 0.28, rb: Lr + 0.06 }
-      : { cowl: 0.36 * L, rf: 0.05 * L, rr: -0.42 * L, rb: -0.66 * L };
-    const aR = sp.wheelRadius + 0.06;
-    const rarch = (cz: number): [number, number][] => {
-      const a0 = Math.asin(Math.max(-1, Math.min(1, (b - yc) / aR))), pts: [number, number][] = [];
-      for (let i = 0; i <= 12; i++) { const a = Math.PI - a0 - (i / 12) * (Math.PI - 2 * a0); pts.push([cz + aR * Math.cos(a), yc + aR * Math.sin(a)]); }
-      return pts;
-    };
-    const tail: [number, number][] = st === 'sedan' ? [[g.rb, bl], [Lr + 0.22, bl + 0.02], [Lr + 0.02, bl - 0.08], [Lr, b + 0.2]]
-      : st === 'coupe' ? [[g.rb, bl], [Lr + 0.12, bl + 0.03], [Lr, bl - 0.08], [Lr - 0.02, b + 0.18]]
-      : [[g.rb, bl], [Lr, bl - 0.04], [Lr - 0.02, b + 0.18]];
-    const lowerP: [number, number][] = [[Lr + 0.05, b], ...rarch(sp.wheelRearZ), ...rarch(sp.wheelFrontZ), [Lf - 0.06, b], [Lf, b + 0.16], [Lf - 0.04, nose], [g.cowl + 0.25, bl - 0.03], [g.cowl, bl],
-      // the cabin is a well between the doors, not solid up to the window line
-      [g.cowl - 0.06, bl], [g.cowl - 0.06, seatY - 0.04], [g.rb + 0.12, seatY - 0.04], [g.rb + 0.12, bl], ...tail];
-    ext('tub', lowerP, W, body);
-    for (const sx of [-1, 1]) ext('door', [[g.rb + 0.12, seatY - 0.05], [g.cowl - 0.06, seatY - 0.05], [g.cowl - 0.06, bl], [g.rb + 0.12, bl]], 0.08, body, sx * (W / 2 - 0.04));
-    // roof panel, pillars and glass (greenhouse narrower than the body)
-    ext('roof', [[g.rf + 0.02, roof - 0.05], [g.rf, roof], [g.rr, roof], [g.rr - 0.02, roof - 0.05]], Wg, body);
-    for (const sx of [-1, 1]) {
-      const at = sx * (Wg / 2 - 0.035);
-      ext('pillar', [[g.cowl, bl], [g.rf, roof], [g.rf - 0.08, roof], [g.cowl - 0.1, bl]], 0.07, body, at);
-      ext('pillar', [[g.rr + 0.12, roof], [g.rr, roof], [g.rb, bl], [g.rb + (st === 'hatch' ? 0.25 : 0.35), bl]], 0.07, body, at);
-      if (st !== 'coupe') { const bz = look.seat[2] - 0.38; ext('pillar', [[bz + 0.05, bl], [bz + 0.05, roof], [bz - 0.05, roof], [bz - 0.05, bl]], 0.07, body, at); }
-      ext('side-glass', [[g.cowl, bl], [g.rf, roof - 0.02], [g.rr, roof - 0.02], [g.rb, bl]], 0.02, glass, sx * (Wg / 2 + 0.01));
-      box('mirror', 0.16, 0.09, 0.14, body, sx * (W / 2 + 0.06), bl + 0.08, g.cowl - 0.12);
-      box('door-line', 0.01, bl - b - 0.08, 0.01, dark, sx * (W / 2 + 0.002), (bl + b) / 2, look.seat[2] - (st === 'coupe' ? 0.75 : 0.4));
-      box('handle', 0.02, 0.03, 0.16, steel, sx * (W / 2 + 0.01), bl - 0.1, look.seat[2] - 0.2);
-      if (st !== 'coupe') box('door-line', 0.01, bl - b - 0.08, 0.01, dark, sx * (W / 2 + 0.002), (bl + b) / 2, look.seat[2] + 0.75);
-    }
-    const pane = (n: string, z0: number, y0: number, z1: number, y1: number, w: number) => {
-      const len = Math.hypot(z1 - z0, y1 - y0), p = box(n, w, len, 0.02, glass, 0, (y0 + y1) / 2, (z0 + z1) / 2);
-      p.rotation.x = Math.atan2(z1 - z0, y1 - y0); return p;
-    };
-    pane('windshield', g.cowl, bl, g.rf, roof, Wg);
-    pane('rear-glass', g.rb, bl, g.rr, roof, Wg - 0.05);
-    // cabin seen through the glass: seats, dash, steering wheel on the driver's side (+X)
-    const [sx0, , sz0] = look.seat;
-    for (const sx of [-sx0, sx0]) { box('seat', 0.46, 0.12, 0.5, dark, sx, seatY + 0.02, sz0); box('seat', 0.46, 0.62, 0.1, dark, sx, seatY + 0.35, sz0 - 0.28, -0.22); }
-    if (st !== 'coupe') box('seat', W * 0.8, 0.5, 0.12, dark, 0, seatY + 0.3, sz0 - 1.05, -0.2);
-    box('dash', Wg - 0.05, 0.16, 0.34, dark, 0, bl - 0.02, g.cowl - 0.12);
-    const wsw = MeshBuilder.CreateTorus('steering', { diameter: 0.36, thickness: 0.03, tessellation: 20 }, scene);
-    wsw.parent = this.root; wsw.position.set(sx0, bl - 0.08, sz0 + 0.5); wsw.rotation.x = -1.15; wsw.material = dark; this.meshes.push(wsw);
-    // nose and tail: grille, lamps, bumpers, number plates, exhausts
-    box('grille', W * 0.5, 0.12, 0.04, dark, 0, b + 0.2, Lf + 0.005);
-    for (const sx of [-1, 1]) {
-      box('headlight', 0.36, 0.07, 0.06, this.head, sx * (W / 2 - 0.26), nose - 0.06, Lf - 0.05);
-      box('taillight', 0.34, 0.07, 0.05, this.brake, sx * (W / 2 - 0.22), bl - 0.1, Lr - 0.01);
-      if (st === 'coupe' || sx < 0) cyl('exhaust', 0.04, 0.12, steel, st === 'coupe' ? sx * 0.3 : -0.45, b + 0.03, Lr - 0.02, 'z');
-    }
-    this.loose.push({ mesh: box('bumper-f', W - 0.06, 0.14, 0.12, dark, 0, b + 0.06, Lf - 0.02), region: 'front', base: 0 });
-    this.loose.push({ mesh: box('bumper-r', W - 0.06, 0.14, 0.12, dark, 0, b + 0.08, Lr + 0.02), region: 'rear', base: 0 });
-    const plate = mat('plate', new Color3(0.92, 0.92, 0.88), 0.5);
-    box('plate', 0.5, 0.11, 0.01, plate, 0, b + 0.2, Lr - 0.035);
-    const accent = mat('accent', new Color3(...look.accent), 0.4, 0.5);
-    if (sp.category === 'racing') {
-      // racing: twin bonnet stripes, splitter and a rear wing
-      for (const sx of [-0.18, 0.18]) { const sb = box('stripe', 0.16, 0.005, Math.hypot(Lf - g.cowl, bl - nose), accent, sx, (nose + bl) / 2 + 0.012, (Lf + g.cowl) / 2); sb.rotation.x = Math.atan2(bl - nose, Lf - g.cowl); }
-      box('splitter', W - 0.1, 0.03, 0.18, accent, 0, b - 0.01, Lf + 0.02);
-      const wingY = (st === 'coupe' ? bl + 0.22 : roof + 0.02), wingZ = st === 'coupe' ? Lr + 0.2 : g.rr + 0.05;
-      box('wing', W * 0.9, 0.03, 0.3, accent, 0, wingY, wingZ);
-      if (st === 'coupe') for (const sx of [-0.45, 0.45]) box('wing-post', 0.04, 0.22, 0.1, dark, sx, bl + 0.1, wingZ);
-    } else if (sp.category === 'luxury') {
-      // luxury: chrome beltline, window surround and grille surround
-      for (const sx of [-1, 1]) box('chrome', 0.012, 0.025, (g.cowl - g.rb), accent, sx * (W / 2 + 0.004), bl - 0.015, (g.cowl + g.rb) / 2);
-      box('chrome', W * 0.52, 0.02, 0.02, accent, 0, b + 0.27, Lf + 0.01);
-      box('chrome', W * 0.52, 0.02, 0.02, accent, 0, b + 0.13, Lf + 0.01);
-    } else {
-      box('trim', W + 0.01, 0.1, L * 1.2, dark, 0, b + 0.1, 0);
-    }
-    } else {
-    const fz = v.spec.wheelFrontZ, rz = v.spec.wheelRearZ, archR = 0.56, archY = -0.45, bot = -0.3;
-    const arch = (cz: number): [number, number][] => {
-      const a0 = Math.asin((bot - archY) / archR), pts: [number, number][] = [];
-      for (let i = 0; i <= 12; i++) { const a = Math.PI - a0 - (i / 12) * (Math.PI - 2 * a0); pts.push([cz + archR * Math.cos(a), archY + archR * Math.sin(a)]); }
-      return pts;
-    };
-    const lower: [number, number][] = [[-2.22, bot], ...arch(rz), ...arch(fz), [2.16, bot], [2.22, 0.08], [2.14, 0.34], [1.9, 0.4], [0.5, 0.47], [-2.2, 0.4], [-2.26, 0.1]];
-    ext('tub', lower, 1.8, body);
-    // cab: roof on pillars, so the driver shows through the glass
-    ext('cab', [[-0.02, 1.03], [-0.08, 1.1], [-1.96, 1.12], [-1.97, 1.03]], 1.68, body);
-    for (const sx of [-1, 1]) {
-      const at = sx * 0.81;
-      ext('cab-frame', [[0.56, 0.42], [-0.04, 1.08], [-0.14, 1.08], [0.44, 0.42]], 0.07, body, at);
-      ext('cab-frame', [[-0.9, 0.42], [-0.9, 1.08], [-1.0, 1.08], [-1.0, 0.42]], 0.07, body, at);
-      ext('cab-frame', [[-1.88, 0.42], [-1.93, 1.08], [-2.12, 1.08], [-2.12, 0.38]], 0.07, body, at);
-      ext('cab-frame', [[0.5, 0.42], [0.42, 0.57], [-2.0, 0.6], [-2.12, 0.38]], 0.07, body, at);
-    }
-    box('cab-frame', 1.62, 0.18, 0.07, body, 0, 0.47, -2.08);
-    // windows: thin glass panels in the openings
-    const sideWin: [number, number][] = [[0.36, 0.55], [-0.05, 1.02], [-0.9, 1.03], [-0.9, 0.58]];
-    const sideWin2: [number, number][] = [[-1.0, 0.58], [-1.0, 1.03], [-1.88, 1.04], [-1.95, 0.6]].reverse() as [number, number][];
-    for (const sx of [-1, 1]) {
-      ext('side-glass', sideWin, 0.02, glass, sx * 0.85 - 0.01);
-      ext('side-glass', sideWin2, 0.02, glass, sx * 0.85 - 0.01);
-    }
-    const ws = box('windshield', 1.5, 0.74, 0.02, glass, 0, 0.77, 0.23, -0.79);
-    box('rear-glass', 1.42, 0.5, 0.02, glass, 0, 0.8, -2.11, 0.1);
-    void ws;
-    // cab interior seen through the glass: seat backs, dash and steering wheel (driver on +X)
-    const seatX = v.spec.look.seat[0];
-    for (const sx of [-seatX, seatX]) { box('seat', 0.46, 0.62, 0.1, dark, sx, 0.66, -0.7, -0.15); box('headrest', 0.26, 0.14, 0.08, dark, sx, 1.02, -0.76, -0.15); }
-    box('dash', 1.6, 0.14, 0.3, dark, 0, 0.6, 0.3);
-    const wsw = MeshBuilder.CreateTorus('steering', { diameter: 0.36, thickness: 0.035, tessellation: 20 }, scene);
-    wsw.parent = this.root; wsw.position.set(seatX, 0.56, 0.1); wsw.rotation.x = -1.25; wsw.material = dark; this.meshes.push(wsw);
-    box('frame', 1.1, 0.16, 4.1, dark, 0, -0.42, 0);
-    box('skid', 1.0, 0.05, 1.1, steel, 0, -0.5, 1.2);
-    box('rocker', 1.84, 0.12, 2.0, dark, 0, -0.26, 0.02);
-    box('beltline', 1.83, 0.035, 4.3, dark, 0, 0.36, -0.02);
-    // wheel-arch flares as tubes following the arch
-    for (const sx of [-1, 1]) for (const cz of [fz, rz]) {
-      const path = arch(cz).map(([z, y]) => new Vector3(sx * 0.91, y + 0.01, z));
-      const t = MeshBuilder.CreateTube('flare', { path, radius: 0.06, tessellation: 8, cap: Mesh.CAP_ALL }, scene);
-      t.parent = this.root; t.material = dark; this.meshes.push(t);
-    }
-    for (const sx of [-1, 1]) {
-      box('mirror-arm', 0.16, 0.03, 0.03, dark, sx * 0.92, 0.6, 0.3);
-      box('mirror', 0.05, 0.16, 0.22, dark, sx * 1.0, 0.66, 0.28);
-      box('step', 0.18, 0.05, 1.6, steel, sx * 0.97, -0.37, -0.05);
-      box('door-line', 0.01, 0.6, 0.01, dark, sx * 0.902, 0.1, -0.95);
-      box('handle', 0.02, 0.03, 0.14, steel, sx * 0.91, 0.28, -0.75);
-    }
-    box('grille', 1.24, 0.3, 0.05, dark, 0, 0.16, 2.2);
-    for (let i = 0; i < 5; i++) box('grille-bar', 1.18, 0.025, 0.02, steel, 0, 0.06 + i * 0.05, 2.225);
-    this.loose.push({ mesh: box('bumper-f', 1.94, 0.2, 0.26, steel, 0, -0.28, 2.26), region: 'front', base: 0 });
-    cyl('bullbar', 0.045, 1.34, steel, 0, 0.36, 2.42, 'x');
-    for (const sx of [-0.58, 0.58]) cyl('bullbar-post', 0.045, 0.66, steel, sx, 0.04, 2.42, 'y');
-    cyl('winch', 0.1, 0.6, dark, 0, -0.2, 2.42, 'x');
-    for (const sx of [-0.72, 0.72]) { cyl('headlight', 0.12, 0.05, this.head, sx, 0.18, 2.2, 'z'); cyl('bezel', 0.15, 0.04, steel, sx, 0.18, 2.18, 'z'); }
-    this.loose.push({ mesh: box('bumper-r', 1.94, 0.2, 0.22, steel, 0, -0.28, -2.3), region: 'rear', base: 0 });
-    for (const sx of [-0.8, 0.8]) box('taillight', 0.14, 0.28, 0.04, this.brake, sx, 0.14, -2.24);
-    cyl('spare', 0.4, 0.27, dark, 0, 0.45, -2.42, 'z'); cyl('spare-hub', 0.2, 0.28, steel, 0, 0.45, -2.42, 'z');
-    box('rack', 1.5, 0.04, 1.8, dark, 0, 1.2, -1.0);
-    for (const sx of [-0.74, 0.74]) box('rack', 0.04, 0.1, 1.8, dark, sx, 1.16, -1.0);
-    box('lightbar', 1.2, 0.09, 0.09, dark, 0, 1.18, -0.04);
-    for (let i = 0; i < 5; i++) box('lightbar-led', 0.16, 0.06, 0.02, this.head, -0.48 + i * 0.24, 1.18, 0.01);
-    if (look.snorkel) { cyl('snorkel', 0.06, 0.95, dark, -0.95, 0.62, 0.5, 'y'); box('snorkel-head', 0.16, 0.12, 0.22, dark, -0.95, 1.12, 0.52); }
-    box('jerrycan', 0.2, 0.46, 0.34, mat('jerrycan', new Color3(0.24, 0.35, 0.16), 0.6), 0.6, 1.45, -1.6);
-    box('hood-scoop', 0.6, 0.05, 0.5, dark, 0, 0.46, 1.25);
-
-    }
-
-    if (!lite) for (const sx of [-0.68, 0.68]) {
-      const l = new SpotLight('headlamp-beam', new Vector3(sx, look.style === 'crawler' ? 0.28 : 0.15, v.spec.halfExtents[2] - 0.1), new Vector3(0, -0.08, 1), Math.PI / 3.2, 2, scene);
+    if (!lite) for (const [bx, by, bz] of info.beams) {
+      const l = new SpotLight('headlamp-beam', new Vector3(bx, by, bz), new Vector3(0, -0.08, 1), Math.PI / 3.2, 2, scene);
       l.parent = this.root; l.intensity = 60; l.range = 70; l.diffuse = new Color3(1, 0.95, 0.82);
       l.setEnabled(false); // disabled lights cost nothing in the shaders
       this.lamps.push(l);
     }
 
-    // Wheels: steer node -> spin node -> tyre + rim + spokes
+    // ---- wheels: steer node -> tyre squash node -> spin node; tyre, rim barrel, spokes, brakes ----
     const tt = treadTexture();
     const tex = new RawTexture(tt.data, tt.width, tt.height, Constants.TEXTUREFORMAT_RGBA, scene, true, false, Texture.TRILINEAR_SAMPLINGMODE);
     tex.uScale = 2; tex.wrapU = tex.wrapV = Texture.WRAP_ADDRESSMODE;
-    const tyreM = mat('tyre', Color3.White(), 0.95); tyreM.albedoTexture = tex;
-    const rimM = mat('rim', new Color3(0.17, 0.18, 0.19), 0.3, 0.85);
-    const R = v.spec.wheelRadius, W = v.spec.wheelWidth, roadCar = look.style === 'coupe' || look.style === 'hatch' || look.style === 'sedan';
-    const rimF = roadCar ? 0.74 : 0.62;
+    const tyreM = new PBRMaterial('tyre', scene); tyreM.albedoColor = Color3.White(); tyreM.roughness = 0.92; tyreM.metallic = 0; tyreM.albedoTexture = tex;
+    const R = sp.wheelRadius, W = sp.wheelWidth, offroad = look.style === 'wagon' || look.style === 'crawler';
+    const rimR = R * info.rimF, tess = lite ? 18 : 40;
     for (let i = 0; i < v.wheels.length; i++) {
       const steer = new TransformNode(`wheel-${i}`, scene); steer.parent = this.root;
       const squash = new TransformNode(`wheel-tyre-${i}`, scene); squash.parent = steer; this.tyreScale.push(squash);
       const spin = new TransformNode(`wheel-spin-${i}`, scene); spin.parent = squash;
-      const prof = [[R * rimF, -W / 2], [R - 0.06, -W / 2], [R - 0.01, -W / 2 + 0.05], [R, 0], [R - 0.01, W / 2 - 0.05], [R - 0.06, W / 2], [R * rimF, W / 2]].map(([r, y]) => new Vector3(r, y, 0));
-      const tyre = MeshBuilder.CreateLathe('tyre', { shape: prof, tessellation: 36, closed: false }, scene); tyre.rotation.z = Math.PI / 2; tyre.parent = spin; tyre.material = tyreM;
       const outer = v.wheels[i].mount.x > 0 ? 1 : -1;
-      const rim = MeshBuilder.CreateCylinder('rim', { diameter: R * rimF * 2.04, height: W * 0.8, tessellation: 24 }, scene); rim.rotation.z = Math.PI / 2; rim.parent = spin; rim.material = rimM;
-      const hub = MeshBuilder.CreateCylinder('hub', { diameter: R * 0.32, height: W * 0.9, tessellation: 12 }, scene); hub.rotation.z = Math.PI / 2; hub.parent = spin; hub.material = steel; hub.position.x = outer * 0.02;
-      const spokes = lite ? 0 : roadCar ? 5 : 6;
-      for (let k = 0; k < spokes; k++) { const sp = MeshBuilder.CreateBox('spoke', { width: 0.05, height: R * rimF * 1.9, depth: roadCar ? 0.05 : 0.07 }, scene); sp.rotation.x = (k / spokes) * Math.PI; sp.position.x = outer * W * 0.38; sp.parent = spin; sp.material = steel; this.meshes.push(sp); }
-      this.meshes.push(hub);
-      this.meshes.push(tyre, rim);
+      const parts: Mesh[] = [];
+      const lathe = (n: string, prof: [number, number][], mat: PBRMaterial) => {
+        // profile in (radius, axle offset towards the outside); the lathe runs round local Y, which then lies along X
+        const l = MeshBuilder.CreateLathe(n, { shape: prof.map(([r, y]) => new Vector3(r, -y * outer, 0)), tessellation: tess, closed: false, sideOrientation: Mesh.DOUBLESIDE }, scene);
+        l.rotation.z = Math.PI / 2; l.parent = spin; l.material = mat; parts.push(l); return l;
+      };
+      // tyre: rounded sidewalls, squarer shoulders on the off-road tyres
+      const sh = offroad ? 0.035 : 0.05, hw = W / 2;
+      lathe('tyre', [[rimR + 0.01, -hw * 0.92], [R - sh - 0.03, -hw], [R - sh * 0.4, -hw + 0.012], [R, -hw + sh * 0.6], [R, hw - sh * 0.6], [R - sh * 0.4, hw - 0.012], [R - sh - 0.03, hw], [rimR + 0.01, hw * 0.92]], tyreM);
+      // rim barrel and polished lip
+      const face = hw * 0.78, dish = offroad ? 0.06 : 0.035;
+      lathe('rim', [[rimR - 0.02, -hw * 0.85], [rimR, -hw * 0.8], [rimR, face - 0.015], [rimR + 0.014, face], [rimR + 0.008, face + 0.012], [rimR - 0.01, face + 0.008], [rimR - 0.03, face - dish * 0.5]], m.rim);
+      // the wheel face: spokes in the wheel plane, then turned to face outwards
+      const faceParts: [P2[], PBRMaterial, number][] = [];
+      const r0 = rimR * 0.24, r1 = rimR - 0.02;
+      const add = (pts: P2[], mat: PBRMaterial, depth: number) => faceParts.push([pts, mat, depth]);
+      switch (info.rim) {
+        case 'five': for (let k = 0; k < 5; k++) for (const o of [-0.13, 0.13]) add(spoke((k / 5) * Math.PI * 2 + o, r0, r1, 0.045, 0.03, o * 0.3), m.rim, 0.03); break;
+        case 'multi': for (let k = 0; k < 10; k++) add(spoke((k / 10) * Math.PI * 2, r0, r1, 0.04, 0.026), m.rim, 0.03); break;
+        case 'split': for (let k = 0; k < 6; k++) { const th = (k / 6) * Math.PI * 2; add(spoke(th, r0, r1 * 0.55, 0.06, 0.05), m.rim, 0.035); for (const o of [-0.16, 0.16]) add(spoke(th + o * 0.3, r1 * 0.5, r1, 0.035, 0.03, o), m.rim, 0.03); } break;
+        case 'mesh': for (let k = 0; k < 10; k++) for (const o of [-0.35, 0.35]) add(spoke((k / 10) * Math.PI * 2, r0, r1, 0.022, 0.018, o), m.rim, 0.025); break;
+        case 'turbine': for (let k = 0; k < 12; k++) add(spoke((k / 12) * Math.PI * 2, r0, r1, 0.05, 0.04, 0.32), m.rim, 0.025); break;
+        case 'steel': {
+          const n = 24, disc: P2[] = Array.from({ length: n }, (_, k) => [Math.cos((k / n) * Math.PI * 2) * r1, Math.sin((k / n) * Math.PI * 2) * r1]);
+          add(disc, m.rim, 0.02);
+          if (!lite) for (let k = 0; k < 6; k++) { const a = (k / 6) * Math.PI * 2, c: P2 = [Math.cos(a) * rimR * 0.62, Math.sin(a) * rimR * 0.62]; add(rot2(Array.from({ length: 10 }, (_, q) => [Math.cos((q / 10) * Math.PI * 2) * 0.035, Math.sin((q / 10) * Math.PI * 2) * 0.035] as P2), 0).map(([x, y]) => [x + c[0], y + c[1]] as P2), m.rubber, 0.03); }
+          break;
+        }
+        case 'beadlock': for (let k = 0; k < 8; k++) add(spoke((k / 8) * Math.PI * 2, r0, r1, 0.07, 0.06), m.rim, 0.035); break;
+      }
+      const centre: P2[] = Array.from({ length: 12 }, (_, k) => [Math.cos((k / 12) * Math.PI * 2) * r0 * 1.15, Math.sin((k / 12) * Math.PI * 2) * r0 * 1.15]);
+      add(centre, info.centreLock ? m.accent : m.rim, 0.04);
+      for (const [pts, mat, depth] of faceParts) {
+        const sm = MeshBuilder.ExtrudePolygon('spoke', { shape: pts.map(([x, y]) => new Vector3(-x, 0, y)), depth, sideOrientation: Mesh.DOUBLESIDE }, scene, earcut);
+        // shape plane (XZ, extruded down Y) -> wheel plane (ZY), extrusion along the axle, outer face at `face`
+        sm.bakeTransformIntoVertices(Matrix.FromValues(0, 0, -1, 0, outer, 0, 0, 0, 0, 1, 0, 0, outer * (face - dish * 0.4), 0, 0, 1));
+        sm.parent = spin; sm.material = mat; parts.push(sm);
+      }
+      if (!lite) {
+        // lug nuts or a centre-lock nut
+        if (info.centreLock) { const n = MeshBuilder.CreateCylinder('nut', { diameter: 0.07, height: 0.05, tessellation: 6 }, scene); n.rotation.z = Math.PI / 2; n.position.x = outer * (face + 0.005); n.parent = spin; n.material = m.steel; parts.push(n); }
+        else for (let k = 0; k < (offroad ? 6 : 5); k++) {
+          const a = (k / (offroad ? 6 : 5)) * Math.PI * 2, n = MeshBuilder.CreateCylinder('nut', { diameter: 0.022, height: 0.03, tessellation: 6 }, scene);
+          n.rotation.z = Math.PI / 2; n.position.set(outer * (face - dish * 0.2), Math.cos(a) * r0 * 0.7, Math.sin(a) * r0 * 0.7); n.parent = spin; n.material = m.chrome; parts.push(n);
+        }
+        if (info.rim === 'beadlock') { const t = MeshBuilder.CreateTorus('beadlock', { diameter: rimR * 2 + 0.01, thickness: 0.03, tessellation: 32 }, scene); t.rotation.z = Math.PI / 2; t.position.x = outer * (face + 0.005); t.parent = spin; t.material = m.accent; parts.push(t); }
+      }
+      // brakes: a disc that turns with the wheel and a caliper that does not
+      if (info.brakes) {
+        const dR = rimR * 0.82, disc = MeshBuilder.CreateCylinder('disc', { diameter: dR * 2, height: 0.028, tessellation: lite ? 16 : 28 }, scene);
+        disc.rotation.z = Math.PI / 2; disc.position.x = outer * (face - 0.09); disc.parent = spin; disc.material = m.disc; parts.push(disc);
+        const cal = MeshBuilder.CreateBox('caliper', { width: 0.07, height: 0.16, depth: 0.12 }, scene);
+        cal.position.set(outer * (face - 0.075), dR * 0.68, (i < 2 ? -1 : 1) * dR * 0.42); cal.rotation.x = (i < 2 ? 1 : -1) * 0.55;
+        cal.parent = squash; cal.material = m.caliper; this.meshes.push(cal);
+      }
+      this.meshes.push(...parts);
       this.wheels.push({ steer, spin });
     }
     this.snapshot();
-    if (lite) {
-      // one multi-material mesh for the body and one per wheel: a handful of draw calls per car
-      const body = this.meshes.filter(m => m.parent === this.root);
-      const merged = Mesh.MergeMeshes(body, true, true, undefined, false, true);
-      const wheelMeshes: Mesh[] = [];
-      for (const w of this.wheels) {
-        const parts = this.meshes.filter(m => m.parent === w.spin);
-        const wm = Mesh.MergeMeshes(parts, true, true, undefined, false, true);
-        if (wm) { wm.parent = w.spin; wheelMeshes.push(wm); }
-      }
-      if (merged) { merged.parent = this.root; this.meshes.length = 0; this.meshes.push(merged, ...wheelMeshes); }
-      this.loose.length = 0;
+    this.mergeStatic(lite);
+  }
+
+  /** Combine the many small static parts by material: a handful of draw calls per car instead of hundreds. */
+  private mergeStatic(lite: boolean) {
+    const keep = (mm: Mesh) => !lite && (DENTABLE.has(mm.name) || COCKPIT_HIDDEN.has(mm.name) || this.loose.some(l => l.mesh === mm));
+    const groups = new Map<TransformNode, Map<unknown, Mesh[]>>();
+    const rest: Mesh[] = [];
+    for (const mm of this.meshes) {
+      const parent = mm.parent as TransformNode | null;
+      if (!parent || keep(mm)) { rest.push(mm); continue; }
+      let g = groups.get(parent); if (!g) { g = new Map(); groups.set(parent, g); }
+      let l = g.get(mm.material); if (!l) { l = []; g.set(mm.material, l); }
+      l.push(mm);
     }
+    const out: Mesh[] = [...rest];
+    for (const [parent, byMat] of groups) for (const [, list] of byMat) {
+      if (list.length === 1) { out.push(list[0]); continue; }
+      const merged = Mesh.MergeMeshes(list, true, true);
+      if (merged) { merged.parent = parent; merged.name = 'merged'; out.push(merged); }
+    }
+    this.meshes = out;
+    if (lite) this.loose.length = 0;
   }
 
   /** Repaint (traffic cars are reused for different cars). */
-  setPaint(c: Color3) { this.paint.albedoColor.copyFrom(c); }
+  setPaint(c: Color3) { for (const p of this.paints) p.albedoColor.copyFrom(c); }
 
   setHeadlights(on: boolean) {
     this.headlightsOn = on;
     for (const l of this.lamps) l.setEnabled(on);
-    this.head.emissiveIntensity = on ? 3 : 0.6;
+    this.head.emissiveIntensity = on ? 3 : 0.35;
   }
 
   /** In the driver's-seat camera, hide the cab shell and roof parts so the view looks out over the bonnet. */
@@ -335,7 +204,8 @@ export class VehicleView {
       n.spin.rotation.x = w.rotation;
     });
     const braking = (v.lastInput.brake > 0.1 && v.gear > 0) || (v.lastInput.throttle > 0.1 && v.gear < 0);
-    this.brake.emissiveIntensity = braking ? 3 : 0.3;
+    this.brake.emissiveIntensity = braking ? 3 : this.headlightsOn ? 0.9 : 0.35;
+    this.reverse.emissiveIntensity = v.gear < 0 ? 2 : 0;
     // flat tyres run smaller (the sim lowers the corner by the same amount)
     this.tyreScale.forEach((n, i) => { const k = v.wheelRadiusOf(i) / s.wheelRadius; n.scaling.set(1, k, k); });
     // hanging bumpers

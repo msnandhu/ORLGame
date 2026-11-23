@@ -60,11 +60,27 @@ export class Wheel {
 }
 
 const GRAVITY = 9.81;
+/** Probe offsets along the tyre (fractions of its radius): the tyre is a circle, not a point, so it rides up steps and over ruts. */
+const PROBES = [0, 0.62, -0.62];
+/** Tyre load sensitivity: friction coefficient falls as load^-k, so a heavily loaded outer tyre grips proportionally less. */
+const LOAD_SENS = 0.12;
+/** Damper velocity knee (m/s): above it the damper is digressive, so a sharp edge does not kick the body. */
+const DAMPER_KNEE = 1.2;
+/**
+ * Normalised tyre curve: u = linear-tyre force / available friction. Linear at small slip, rounds off to the peak
+ * (no hard corner, so the limit is felt coming) and falls a little once sliding, so a slide needs catching but a
+ * locked or spinning tyre still has most of its grip.
+ */
+export function tyreCurve(u: number, longShare: number): number {
+  const g = u / Math.pow(1 + u * u * u * u, 0.25);
+  return g * (1 - (0.08 + 0.05 * longShare) * smoothstep(1.3, 4, u));
+}
 const _v = new Vec3(), _f = new Vec3(), _p = new Vec3(), _n = new Vec3();
 const _up = new Vec3(), _fwd = new Vec3(), _right = new Vec3();
 const _wf = new Vec3(), _wl = new Vec3();
 const _nArr: [number, number, number] = [0, 1, 0];
 const _hit = { boulder: false };
+const _pr = new Vec3(), _bn: [number, number, number] = [0, 1, 0];
 const _qb = new Set<number>(), _qt = new Set<number>();
 
 export class Vehicle {
@@ -93,7 +109,10 @@ export class Vehicle {
   condition: VehicleCondition = newCondition();
   engineTemp = 85;            // deg C
   overheated = false;         // stalled from heat; restarts once below 100 C
-  tcActive = false; absActive = false; crawlActive = false;
+  tcActive = false; absActive = false; crawlActive = false; escActive = false;
+  /** static centre-of-mass height above the ground (m), for the roll centre */
+  cgHeight = 0.6;
+  private escBrake = [0, 0, 0, 0];
   impactGrace = 0;            // seconds after a reset during which nothing is damaged
   onImpact: ((e: ImpactEvent) => void) | null = null;
   private hullWasContact: boolean[] = [];
@@ -115,6 +134,13 @@ export class Vehicle {
     this.hullWasContact = this.hullPoints.map(() => false);
     this.hullNowContact = this.hullPoints.map(() => false);
     this.hullBoxMem = this.hullPoints.map(() => ({ box: -1, axis: 0, sign: 1 }));
+    this.cgHeight = Vehicle.cgHeightOf(spec);
+  }
+
+  /** Centre-of-mass height above flat ground at static ride height. */
+  static cgHeightOf(s: VehicleSpec) {
+    const sag = Math.min(s.maxTravel, s.mass * GRAVITY / 4 / s.springRate);
+    return Math.max(0.2, -s.mountY + s.restLength - sag + s.wheelRadius);
   }
 
   /**
@@ -125,6 +151,7 @@ export class Vehicle {
     this.spec = spec;
     this.body.mass = spec.mass;
     this.body.invInertiaBody.set(1 / spec.inertia[0], 1 / spec.inertia[1], 1 / spec.inertia[2]);
+    this.cgHeight = Vehicle.cgHeightOf(spec);
     this.fuel = Math.min(this.fuel, spec.fuelCapacity);
     if (spec.modes && !spec.modes.includes(this.drivingMode)) this.setDrivingMode(spec.modes[0]);
   }
@@ -261,11 +288,44 @@ export class Vehicle {
       if (excess > 0) { throttle *= clamp(1 - excess * 1.5, 0.15, 1); this.tcActive = true; }
     }
 
+    // stability control: compares the yaw rate with what the steering and the available grip ask for; on a slide
+    // it trims the throttle and brakes the outside front wheel, which pulls the nose back in line
+    this.escActive = false; this.escBrake.fill(0);
+    if (mode.esc !== null && vFwd > 4 && this.gear > 0) {
+      const wbase = s.wheelFrontZ - s.wheelRearZ;
+      const r = b.angVel.dot(_up);
+      const limit = 0.95 * GRAVITY / vFwd;
+      const rRef = clamp(-vFwd * Math.tan(this.steerSmoothed) / wbase, -limit, limit);
+      const vLat = _right.dot(b.vel), beta = Math.atan2(-vLat, vFwd);
+      // too much yaw in the turn, or a yaw rate building against the steering (snap oversteer)
+      const excess = (Math.sign(r) === Math.sign(rRef) || Math.abs(rRef) < 0.02 ? Math.abs(r) - Math.abs(rRef) : Math.abs(r)) - mode.esc;
+      // or the whole car sliding wider than a fast tyre's slip angle (both axles past the limit)
+      const betaEx = (Math.abs(beta) - (0.08 + mode.esc * 0.4)) * 2;
+      const sev = Math.max(excess > 0.15 || betaEx > 0 ? excess : 0, betaEx);
+      if (sev > 0) {
+        this.escActive = true; this.tcActive = true;
+        throttle *= clamp(1 - sev * 3, 0.05, 1);
+        // r < 0 turns right: the outside front is the left one (wheel 0)
+        const outer = r < 0 ? 0 : 1;
+        this.escBrake[outer] = clamp(Math.max(excess, 0) * 1.6, 0, 0.7) * s.brakeTorqueFront;
+      }
+    }
+
     // ---------- Steering (speed sensitive, smoothed, Ackermann) ----------
     const steerLimit = s.maxSteer * (1 - 0.55 * smoothstep(5, 30, Math.abs(vFwd)));
     // bent steering / a flat front tyre pull the car towards the damaged side (+X is left; positive steer is right)
     const pull = -((cond.suspension[0] - cond.suspension[1]) * 0.05 + ((isPunctured(cond, 0) ? 1 : 0) - (isPunctured(cond, 1) ? 1 : 0)) * 0.03);
-    const target = clamp(input.steer * steerLimit + pull * smoothstep(1, 6, Math.abs(vFwd)), -s.maxSteer, s.maxSteer);
+    let target = clamp(input.steer * steerLimit + pull * smoothstep(1, 6, Math.abs(vFwd)), -s.maxSteer, s.maxSteer);
+    // steering assist (with stability control): keeps the front tyres near their peak slip angle around the way the
+    // front axle is actually travelling, so full lock at speed turns as hard as the grip allows instead of washing the
+    // tyres out, and steering into a slide is always allowed
+    if (mode.esc !== null && vFwd > 5) {
+      _v.copy(_fwd).multiplyScalar(s.wheelFrontZ);
+      _v.crossVectors(b.angVel, _v).add(b.vel);
+      const travel = Math.atan2(_v.dot(_right), Math.max(1, _v.dot(_fwd)));
+      const peak = clamp(1.7 / (s.tireLatStiffness * s.tireGrip), 0.1, 0.3) + mode.esc * 0.2;
+      target = clamp(target, travel - peak, travel + peak);
+    }
     const rate = 2.2 * mode.steerRateMul * dt;
     this.steerSmoothed += clamp(target - this.steerSmoothed, -rate, rate);
     const st = this.steerSmoothed;
@@ -280,28 +340,45 @@ export class Vehicle {
     // ---------- Suspension raycasts ----------
     for (let wi = 0; wi < 4; wi++) {
       const w = this.wheels[wi];
-      const maxLen = s.restLength + this.wheelRadiusOf(wi);
+      const R = this.wheelRadiusOf(wi);
+      const maxLen = s.restLength + R;
       _p.copy(w.mount).applyQuaternion(q).add(b.pos);
       _n.copy(_up).negate();
-      const t = T.raycast(_p.x, _p.y, _p.z, _n.x, _n.y, _n.z, maxLen + 0.1, _nArr, _hit);
+      // the tyre's heading in the body plane, for probes ahead of and behind the axle
+      _wf.copy(_fwd).applyAxisAngle(_up, -w.steer);
+      let bestT = Infinity, bk = 0, boulder = false;
+      for (let k = 0; k < PROBES.length; k++) {
+        const dx = PROBES[k] * R;
+        _pr.copy(_p).addScaledVector(_wf, dx);
+        const t = T.raycast(_pr.x, _pr.y, _pr.z, _n.x, _n.y, _n.z, maxLen + 0.1, _nArr, _hit);
+        if (t < 0 || (k > 0 && t === 0)) continue; // a probe that starts inside a wall is the hull's business
+        // distance at which the wheel centre (plus R) would sit for the circle to touch this hit
+        const tEff = t - Math.sqrt(R * R - dx * dx) + R;
+        if (tEff < bestT) {
+          bestT = tEff; bk = k; boulder = _hit.boulder;
+          w.contactPoint.copy(_pr).addScaledVector(_n, t);
+          _bn[0] = _nArr[0]; _bn[1] = _nArr[1]; _bn[2] = _nArr[2];
+        }
+      }
+      void bk;
       w.prevCompression = w.compression;
       w.inWater = false;
-      if (t >= 0 && t <= maxLen) {
+      if (bestT <= maxLen) {
         w.contact = true;
-        w.onBoulder = _hit.boulder;
-        w.surface = _hit.boulder ? Surface.Rock : T.surfaceAt(_p.x + _n.x * t, _p.z + _n.z * t);
-        const mud = _hit.boulder ? 0 : T.mudAt(_p.x, _p.z);
+        w.onBoulder = boulder;
+        const cp = w.contactPoint;
+        w.surface = boulder ? Surface.Rock : T.surfaceAt(cp.x, cp.z);
+        const mud = boulder ? 0 : T.mudAt(_p.x, _p.z);
         w.mudSink = SURFACE_PROPS[w.surface].sink * (w.surface === Surface.Mud ? 0.5 + mud : 1);
-        w.compression = Math.min(maxLen - t + w.mudSink, s.maxTravel + 0.12);
-        w.contactPoint.copy(_p).addScaledVector(_n, t);
-        w.contactNormal.set(_nArr[0], _nArr[1], _nArr[2]);
+        w.compression = Math.min(maxLen - bestT + w.mudSink, s.maxTravel + 0.12);
+        w.contactNormal.set(_bn[0], _bn[1], _bn[2]);
       } else {
         w.contact = false;
         w.compression = Math.max(0, w.compression - dt * 3); // visual droop
         w.load = 0;
       }
       const susp = s.restLength - w.compression;
-      w.worldCenter.copy(_p).addScaledVector(_n, susp + (w.contact ? 0 : 0));
+      w.worldCenter.copy(_p).addScaledVector(_n, susp);
       if (w.worldCenter.y < T.waterAt(w.worldCenter.x, w.worldCenter.z)) w.inWater = true;
     }
 
@@ -312,7 +389,9 @@ export class Vehicle {
       if (!w.contact) continue;
       const cv = (w.compression - w.prevCompression) / dt;
       const sd = cond.suspension[i]; // a damaged corner sags and wallows
-      let F = s.springRate * (1 - 0.4 * sd) * w.compression + (cv > 0 ? s.bumpDamping : s.reboundDamping) * mode.dampingMul * (1 - 0.5 * sd) * cv;
+      // digressive damper: full rate up to the knee, softer beyond (sharp edges do not kick the body)
+      const acv = Math.abs(cv), cvd = acv <= DAMPER_KNEE ? cv : Math.sign(cv) * (DAMPER_KNEE + (acv - DAMPER_KNEE) * 0.35);
+      let F = s.springRate * (1 - 0.4 * sd) * w.compression + (cv > 0 ? s.bumpDamping : s.reboundDamping) * mode.dampingMul * (1 - 0.5 * sd) * cvd;
       if (w.compression > s.maxTravel) {
         F += (w.compression - s.maxTravel) * 400000 + Math.max(cv, 0) * 20000;
         if (!w.bumpHit && cv > BUMPSTOP_THRESHOLD && this.impactGrace <= 0) {
@@ -408,6 +487,7 @@ export class Vehicle {
         const excess = Math.abs(w.slipRatio) - Math.abs(partner.slipRatio) - 0.25;
         if (excess > 0) { service += clamp(excess, 0, 1) * s.brakeTorqueFront * 0.5; this.tcActive = true; }
       }
+      service += this.escBrake[wi];
       const bt = service + (!w.front ? s.handbrakeTorque * input.handbrake : 0);
       w.brakeTorque = bt;
       const I = s.wheelInertia + (isDriven ? engInertiaPerWheel : 0);
@@ -431,21 +511,32 @@ export class Vehicle {
         const held = w.brakeTorque > 0 && Math.abs(w.omega) < 0.05;
         const denom = Math.max(Math.abs(vx), held ? 0.08 : 1.2);
         w.slipRatio = sv / denom;
-        Fx = clamp(w.slipRatio * s.tireLongStiffness * sp.stiff, -1.2, 1.2) * N;
-        const fZero = Math.abs(sv) / (dt * ((held ? 0 : R * R / I) + 1 / mEff)); // a held wheel cannot spin up, so the tyre alone stops the slide
-        Fx = clamp(Fx, -fZero, fZero);
         // Lateral: slip angle
         w.slipAngle = Math.atan2(vy, Math.max(Math.abs(vx), held ? 0.3 : 1.5));
-        Fy = -clamp(w.slipAngle * s.tireLatStiffness * sp.stiff, -1.15, 1.15) * N;
+        // combined slip: the linear tyre's demand (force per newton of load) shaped by the tyre curve against the
+        // friction available, which falls off with load (weight transfer costs grip)
+        const muE = maxF / N * Math.pow(clamp(N / (s.mass * GRAVITY / 4), 0.3, 3), -LOAD_SENS);
+        const dX = w.slipRatio * s.tireLongStiffness * sp.stiff, dY = -w.slipAngle * s.tireLatStiffness * sp.stiff;
+        const dm = Math.hypot(dX, dY);
+        if (dm > 1e-6) {
+          const k = muE * N * tyreCurve(dm / muE, Math.abs(dX) / dm) / dm;
+          Fx = dX * k; Fy = dY * k;
+        }
+        const fZero = Math.abs(sv) / (dt * ((held ? 0 : R * R / I) + 1 / mEff)); // a held wheel cannot spin up, so the tyre alone stops the slide
+        Fx = clamp(Fx, -fZero, fZero);
         const fyZero = Math.abs(vy) * mEff / dt;
         Fy = clamp(Fy, -fyZero, fyZero);
-        // Friction circle (longitudinal prioritised slightly less than lateral)
-        const tot = Math.hypot(Fx, Fy);
-        if (tot > maxF) { Fx *= maxF / tot; Fy *= maxF / tot; }
         // Rolling resistance & mud drag
         const roll = sp.roll * N * Math.tanh(vx * 2);
-        _f.copy(_wf).multiplyScalar(Fx - roll).addScaledVector(_wl, Fy);
-        b.applyForceAt(_f, w.contactPoint);
+        // side force acts through the suspension links at the roll centre, drive and brake forces partly through
+        // the anti-dive / anti-squat geometry; only the rest rolls and pitches the body on its springs
+        const hc = this.cgHeight;
+        _f.copy(_wl).multiplyScalar(Fy);
+        _v.copy(w.contactPoint).addScaledVector(_up, hc * (s.rollCentre ?? 0.35));
+        b.applyForceAt(_f, _v);
+        _f.copy(_wf).multiplyScalar(Fx - roll);
+        _v.copy(w.contactPoint).addScaledVector(_up, hc * 0.2);
+        b.applyForceAt(_f, _v);
         // wheel spin dynamics: reaction torque
         w.omega += ((w.driveTorque - Fx * R) / I) * dt;
       } else {

@@ -63,6 +63,11 @@ export interface VehicleSpec {
   tireLongStiffness: number; tireLatStiffness: number;
   intakeHeight: number;         // y of air intake relative to CoM (snorkel raises it)
   fuelCapacity: number;
+  /**
+   * Roll-centre height as a fraction of the centre-of-mass height (default 0.35): tyre side forces act through the
+   * suspension links at this height, so only the rest rolls the body on its springs.
+   */
+  rollCentre?: number;
   /** radiator capacity multiplier (1 = factory); tuned engines run hotter, a heavy-duty radiator cooler */
   coolingCapacity?: number;
 }

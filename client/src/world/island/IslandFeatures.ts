@@ -129,7 +129,21 @@ export class IslandFeatures {
       if (inCore(r.pts[i])) { i++; continue; }
       let j = i; while (j < r.pts.length - 1 && !inCore(r.pts[j + 1]) && j - i < 60) j++;
       const a = Math.max(0, i - 1), idx = Array.from({ length: j - a + 1 }, (_, k) => a + k);
-      if (idx.length >= 2) this.ribbon(`iroad-${r.src.id}-${a}`, idx.map(k => r.pts[k]), idx.map(k => r.profile[k] + 0.06), idx.map(() => r.cls.width / 2), mat, 20, idx.map(k => r.cum[k]));
+      if (idx.length >= 2) {
+        const pts = idx.map(k => r.pts[k]), ys = idx.map(k => r.profile[k] + 0.06), cum = idx.map(k => r.cum[k]);
+        // roads that leave the valley start a few metres outside it: run the carriageway back to the valley's own
+        // road end, so there is no strip of bare ground across the road at the valley edge
+        const reach = (e: 0 | 1) => {
+          const k = e ? pts.length - 1 : 0, [x, z] = pts[k], [px, pz] = pts[e ? k - 1 : 1];
+          const edge = this.o.coreHalf - Math.max(Math.abs(x), Math.abs(z));
+          if ((e ? j !== r.pts.length - 1 : a !== 0) || edge > 0 || edge < -24) return;
+          const dx = x - px, dz = z - pz, l = Math.hypot(dx, dz) || 1, back = -edge + 2.5;
+          const q: [number, number] = [x + dx / l * back, z + dz / l * back];
+          if (e) { pts.push(q); ys.push(ys[k]); cum.push(cum[k] + back); } else { pts.unshift(q); ys.unshift(ys[0]); cum.unshift(cum[0] - back); }
+        };
+        reach(0); reach(1);
+        this.ribbon(`iroad-${r.src.id}-${a}`, pts, ys, pts.map(() => r.cls.width / 2), mat, 20, cum);
+      }
       i = j === i ? i + 1 : j;
     }
   }

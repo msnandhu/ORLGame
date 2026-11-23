@@ -24,6 +24,8 @@ export interface DrivingModeProfile {
   /** crawl control: holds speed at or below this many km/h. null = off */
   crawlKmh: number | null;
   antiRollMul: number; dampingMul: number; steerRateMul: number;
+  /** stability control: yaw-rate excess (rad/s) over what the steering asks for before it brakes a wheel. null = off */
+  esc: number | null;
   /** what the transfer case and lockers are set to when the mode is selected */
   recommend: { range: '2H' | '4H' | '4L'; diffLock: boolean } | null;
 }
@@ -32,32 +34,32 @@ export const DRIVING_MODE_PROFILES: Record<DrivingMode, DrivingModeProfile> = {
   normal: {
     id: 'normal', label: 'Normal', description: 'Balanced pedal, traction control and ABS on.',
     throttleExp: 1.2, throttleGain: 1, tcSlip: 0.35, brakeTc: false, abs: true, shiftBias: 0, startGear: 1,
-    crawlKmh: null, antiRollMul: 1, dampingMul: 1, steerRateMul: 1, recommend: null,
+    crawlKmh: null, antiRollMul: 1, dampingMul: 1, steerRateMul: 1, esc: 0.1, recommend: null,
   },
   sport: {
     id: 'sport', label: 'Sport', description: 'Sharp pedal, late upshifts, stiffer roll control, loose traction control.',
     throttleExp: 0.85, throttleGain: 1, tcSlip: 0.6, brakeTc: false, abs: true, shiftBias: 700, startGear: 1,
-    crawlKmh: null, antiRollMul: 1.4, dampingMul: 1.2, steerRateMul: 1.35, recommend: { range: '2H', diffLock: false },
+    crawlKmh: null, antiRollMul: 1.4, dampingMul: 1.2, steerRateMul: 1.35, esc: 0.3, recommend: { range: '2H', diffLock: false },
   },
   offroad: {
     id: 'offroad', label: 'Off-road', description: 'Soft roll bars for articulation, brake traction control, 4H.',
     throttleExp: 1.5, throttleGain: 1, tcSlip: 0.5, brakeTc: true, abs: false, shiftBias: 300, startGear: 1,
-    crawlKmh: null, antiRollMul: 0.6, dampingMul: 0.9, steerRateMul: 1, recommend: { range: '4H', diffLock: false },
+    crawlKmh: null, antiRollMul: 0.6, dampingMul: 0.9, steerRateMul: 1, esc: 0.25, recommend: { range: '4H', diffLock: false },
   },
   rockcrawl: {
     id: 'rockcrawl', label: 'Rock crawl', description: 'Crawl control holds walking pace, maximum articulation, 4L and lockers.',
     throttleExp: 2.0, throttleGain: 0.9, tcSlip: 0.4, brakeTc: true, abs: false, shiftBias: 0, startGear: 1,
-    crawlKmh: 9, antiRollMul: 0.25, dampingMul: 0.8, steerRateMul: 0.85, recommend: { range: '4L', diffLock: true },
+    crawlKmh: 9, antiRollMul: 0.25, dampingMul: 0.8, steerRateMul: 0.85, esc: null, recommend: { range: '4L', diffLock: true },
   },
   snow: {
     id: 'snow', label: 'Snow', description: 'Very gentle pedal, tight traction control, pulls away in 2nd, early upshifts.',
     throttleExp: 2.2, throttleGain: 0.75, tcSlip: 0.15, brakeTc: true, abs: true, shiftBias: -300, startGear: 2,
-    crawlKmh: null, antiRollMul: 1, dampingMul: 1, steerRateMul: 0.8, recommend: { range: '4H', diffLock: false },
+    crawlKmh: null, antiRollMul: 1, dampingMul: 1, steerRateMul: 0.8, esc: 0.08, recommend: { range: '4H', diffLock: false },
   },
   mud: {
     id: 'mud', label: 'Mud', description: 'Traction control off so the tyres can clear, holds gears longer, 4H and lockers.',
     throttleExp: 1.0, throttleGain: 1, tcSlip: null, brakeTc: false, abs: false, shiftBias: 500, startGear: 1,
-    crawlKmh: null, antiRollMul: 0.8, dampingMul: 0.9, steerRateMul: 1, recommend: { range: '4H', diffLock: true },
+    crawlKmh: null, antiRollMul: 0.8, dampingMul: 0.9, steerRateMul: 1, esc: null, recommend: { range: '4H', diffLock: true },
   },
 };
 

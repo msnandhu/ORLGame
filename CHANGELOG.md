@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.1: Driving physics pass and fixes
+
+- **Start-up crash fixed.** On Ultra with WebGPU the game stopped at "The game could not start" (`createMultipleRenderTarget is not a function`): ambient occlusion needed a Babylon engine module that was never loaded. Both renderers now load it, and if ambient occlusion still fails on a device it switches itself off and the game carries on.
+- **Tyres.** A new tyre curve: grip builds smoothly to a peak and eases off a little past it (no hard edge, slides can be caught), combined grip for braking or accelerating while turning, and load sensitivity, so weight transfer costs grip like real tyres.
+- **Rollovers.** Side forces now act at each vehicle's roll centre instead of the ground, and drive and brake forces partly through anti-dive geometry. Before, the Bramble RC2 nearly rolled over in a 100 km/h lane change and rolled 51° in a 60 km/h corner. Now it leans at most 10°. The Ranger TX4 leans 7° where it used to lean 29° and spin.
+- **Stability control and steering assist** (Normal, Sport, Off-road and Snow modes; off in Rock crawl and Mud). Stability control trims the throttle and brakes the outside front wheel in a slide, and its light is the TC lamp. The steering assist keeps the front tyres at their best slip angle, so full lock at speed turns as hard as the grip allows instead of ploughing. Sports cars on performance tyres no longer spin on dirt at 50 km/h.
+- **Ground contact.** Each tyre is probed as a circle (three probes per wheel), so wheels roll up steps and over ruts instead of slamming into them. The dampers are digressive, so sharp edges no longer kick the body. At 90 km/h on an island highway the Ranger's wheels no longer leave the road (0.38 s of airtime before). On the forest trail its hardest vertical jolt fell from 14.6 to 11.4 m/s², and the Bramble's crash on that drive is gone.
+- **Valley exits.** The four roads that leave the valley had an 8 m strip of bare ground across the carriageway at the valley edge. The island roads now run back to meet the valley's roads.
+- 9 new handling tests: every vehicle stays upright and under 20 to 25° of body slip in a 100 km/h lane change and a 100 km/h power-on corner, and the Ranger drives an island highway at 90 km/h with its wheels on the road.
+
 ## 0.10.0: Phase 4, garage and customization
 
 - **Garage.** A 3D workshop bay with a turntable: inspect any vehicle from every angle (drag, wheel to zoom, lamps on/off). Open it from the main menu, with **E** in the camp shed on foot, or **U** when you stop a vehicle in the shed or at the island's Service Garage and Mountain Garage.

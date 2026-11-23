@@ -11,6 +11,14 @@ const run = (v: Vehicle, secs: number, inp: Partial<VehicleInput>) => {
   const i: VehicleInput = { throttle: 0, brake: 0, steer: 0, handbrake: 0, ...inp };
   for (let t = 0; t < secs; t += DT) v.step(DT, i);
 };
+function findFlat(): [number, number] {
+  for (let j = 20; j < terrain.n - 20; j += 3) for (let i = 20; i < terrain.n - 20; i += 3) {
+    const x = i * terrain.cell - terrain.half, z = j * terrain.cell - terrain.half; let ok = true;
+    for (let d = -20; d <= 30 && ok; d += 2) { const s = terrain.surfaceAt(x, z + d); if (s === 2 || s === 3 || terrain.normalAt(x, z + d)[1] < 0.985 || terrain.heightAt(x, z + d) < terrain.waterLevel + 0.3) ok = false; }
+    if (ok) return [x, z];
+  }
+  throw new Error('no flat strip');
+}
 const up = (v: Vehicle) => new Vector3(0, 1, 0).applyQuaternion(v.body.quat).y;
 
 describe('terrain', () => {
@@ -49,10 +57,14 @@ describe('vehicle physics', () => {
     console.log('0-6s speed km/h', s6.toFixed(1), 'gear', v.gear, 'rpm', v.rpm.toFixed(0));
     expect(s6).toBeGreaterThan(35);
     expect(v.gear).toBeGreaterThan(1);
-    let t = 0;
-    while (v.forwardSpeed() > 0.3 && t < 8) { run(v, 0.05, { brake: 1 }); t += 0.05; }
-    console.log('braking time s', t.toFixed(2));
-    expect(t).toBeLessThan(4);
+    // braking measured on a flat, firm strip
+    const [fx, fz] = findFlat();
+    v.reset(fx, fz - 18, 0); run(v, 1, {}); run(v, 3, { throttle: 1 });
+    const v0 = v.forwardSpeed();
+    run(v, 0.75, { brake: 1 });
+    const decel = (v0 - v.forwardSpeed()) / 0.75;
+    console.log('braking decel m/s2', decel.toFixed(1), 'surface', v.wheels.map(w => w.surface).join(''));
+    expect(decel).toBeGreaterThan(5.5); expect(decel).toBeLessThan(11);
   });
   it('turns right with positive steer', () => {
     const v = new Vehicle(RANGER_TX4, terrain);

@@ -88,8 +88,16 @@ export class Vehicle {
   /** Place the vehicle resting above the terrain at x,z facing heading (radians, 0 = +Z). */
   reset(x: number, z: number, heading: number) {
     const b = this.body;
-    const h = this.terrain.heightAt(x, z);
-    b.pos.set(x, h + 1.3, z);
+    // clear the whole footprint (terrain + boulders) so no hull point starts buried
+    let h = -1e9;
+    const c = Math.cos(heading), sn = Math.sin(heading);
+    for (let lz = -2.6; lz <= 2.6; lz += 0.65) for (let lx = -1.1; lx <= 1.1; lx += 0.55) {
+      const wx = x + lx * c + lz * sn, wz = z - lx * sn + lz * c;
+      h = Math.max(h, this.terrain.heightAt(wx, wz));
+      this.terrain.query(wx, wz, 0.1, _qb, _qt);
+      for (const i of _qb) { const bo = this.terrain.boulders[i]; const d2 = (wx - bo.x) ** 2 + (wz - bo.z) ** 2; if (d2 < bo.r * bo.r) h = Math.max(h, bo.y + Math.sqrt(bo.r * bo.r - d2)); }
+    }
+    b.pos.set(x, h + 1.0, z);
     b.quat.setFromAxisAngle(new Vector3(0, 1, 0), heading);
     b.vel.set(0, 0, 0); b.angVel.set(0, 0, 0);
     for (const w of this.wheels) { w.omega = 0; w.compression = w.prevCompression = 0; }
@@ -395,7 +403,7 @@ export class Vehicle {
     const k = 260000, c = 22000;
     let Fn = k * pen - c * vn;
     if (Fn <= 0) return;
-    Fn = Math.min(Fn, b.mass * 60);
+    Fn = Math.min(Fn, b.mass * 14);
     const f = new Vector3().copy(n).multiplyScalar(Fn);
     // tangential friction, velocity-capped
     const vt = _v.clone().addScaledVector(n, -vn);

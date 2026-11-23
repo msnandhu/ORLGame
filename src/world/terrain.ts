@@ -52,7 +52,7 @@ export class Terrain {
         h += mount * (noise.ridged(x / 210, z / 210, 5) * 95 + 15);
         // Rock-crawl ridge east of camp
         const crawl = smoothstep(90, 20, Math.hypot(x - 190, z + 60));
-        h += crawl * (12 + n2.ridged(x / 25, z / 25, 3) * 10);
+        h += crawl * (10 + n2.ridged(x / 30, z / 30, 3) * 6);
         // River valley carved to a common water level
         const dRiver = Math.abs(z - riverZ(x));
         const carve = 1 - smoothstep(14, 70, dRiver);
@@ -71,11 +71,34 @@ export class Terrain {
         const nearRiver = 1 - smoothstep(20, 60, dRiver);
         const mudAmt = clamp(Math.max(mudMask, nearRiver * 0.8 * smoothstep(0.0, 0.3, n2.noise(x / 40, z / 40) + 0.3)), 0, 1);
         h -= mudAmt * 0.8;
+        // trails never drop into deep water: build up a causeway / ford no deeper than ~0.5 m
+        const ford2 = 1 - smoothstep(6, 18, dt);
+        if (h < this.waterLevel - 0.5) h = lerp(h, this.waterLevel - 0.5, ford2);
         // Small-scale bumps (ruts / roughness)
-        h += noise.noise(x / 6, z / 6) * (0.18 + mount * 0.6 + crawl * 0.5) * (1 - onTrail * 0.7);
+        h += noise.noise(x / 6, z / 6) * (0.18 + mount * 0.6 + crawl * 0.15) * (1 - onTrail * 0.7);
         const k = j * N + i;
         this.heights[k] = h;
         this.mudDepth[k] = mudAmt;
+      }
+    }
+    // Ease trail gradients: blend trail corridors toward a heavily blurred height field
+    {
+      const blur = (src: Float32Array, r: number) => {
+        const tmp = new Float32Array(N * N), out = new Float32Array(N * N);
+        for (let j = 0; j < N; j++) { let acc = 0; for (let i = -r; i <= r; i++) acc += src[j * N + clamp(i, 0, N - 1)];
+          for (let i = 0; i < N; i++) { tmp[j * N + i] = acc / (2 * r + 1); acc += src[j * N + Math.min(i + r + 1, N - 1)] - src[j * N + Math.max(i - r, 0)]; } }
+        for (let i = 0; i < N; i++) { let acc = 0; for (let j = -r; j <= r; j++) acc += tmp[clamp(j, 0, N - 1) * N + i];
+          for (let j = 0; j < N; j++) { out[j * N + i] = acc / (2 * r + 1); acc += tmp[Math.min(j + r + 1, N - 1) * N + i] - tmp[Math.max(j - r, 0) * N + i]; } }
+        return out;
+      };
+      let b = blur(this.heights, 7); b = blur(b, 7);
+      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+        const k = j * N + i;
+        const w = 1 - smoothstep(5, 16, this.trailField[k]);
+        if (w <= 0) continue;
+        let target = b[k];
+        if (target < this.waterLevel - 0.5) target = this.waterLevel - 0.5;
+        this.heights[k] += (target - this.heights[k]) * w * 0.9;
       }
     }
     // Classify surfaces from slope and masks

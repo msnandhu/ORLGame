@@ -11,7 +11,7 @@ let pg: Terrain; // flat proving ground
 beforeAll(() => {
   pg = new Terrain();
   pg.heights.fill(20); pg.surface.fill(1); pg.mudDepth.fill(0);
-  pg.boulders.length = 0; pg.trees.length = 0; pg.boxes.length = 0;
+  pg.boulders.length = 0; pg.trees.length = 0; pg.boxes.length = 0; pg.reindexBoxes();
   (pg as unknown as { grid: Map<number, unknown> }).grid.clear();
 });
 const DT = 1 / 60;

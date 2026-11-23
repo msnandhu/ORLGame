@@ -1,6 +1,6 @@
 # OFF-ROAD LEGENDS
 
-Browser open-world multiplayer off-road game. **Current milestone: Phase 3 (character engine), v0.5.0.** This adds male and female characters with a character creator, blended animation, animated enter/exit with a visible driver, E-to-interact, and a camp mechanic NPC with dialogue. Phase 2 added two data-driven vehicles, six driving modes, collision damage and repairs.
+Browser open-world multiplayer off-road game. **Current version: v0.6.0, towns, highways and road cars.** The world is now 2.56 km across. It has a city, a town and a village with solid buildings, a four-lane highway loop with link roads, six drivable road cars (racing, common and luxury) and AI traffic. Phase 3 (v0.5) added the character engine, and Phase 2 (v0.4) the data-driven off-road vehicles, driving modes and damage.
 
 Stack: TypeScript (strict) · Babylon.js 9 (WebGPU, falling back to WebGL2) · Havok physics + custom 240 Hz drivetrain/tyre simulation · Colyseus 0.18 server-authoritative multiplayer · Vite · Vitest.
 
@@ -20,6 +20,8 @@ npm run start:server   # run the bundled server
 
 Character: the main menu's **Character** button opens the creator (the first New game opens it too).
 
+Vehicles: the two off-roaders are at base camp. The road cars are in the town car parks, and **Pause → Fast travel** takes you there.
+
 Single player works without the server. For multiplayer, start the server, then click **Multiplayer free roam** in the main menu (server address is in Settings).
 
 ## Controls
@@ -34,8 +36,9 @@ Single player works without the server. For multiplayer, start the server, then 
 | Camera mode | V (chase, far, hood, cockpit / on foot: chase, first-person, free) | |
 | Handbrake / jump | Space | A |
 | Sprint / crouch | Shift / C | |
-| Driving mode (Normal, Sport, Off-road, Rock crawl, Snow, Mud) | C | X |
-| 2H / 4H / 4L, diff lock, auto/manual, shift | G, L, T, X/Z | LB/RB shift |
+| Driving mode (Normal, Sport, Off-road, Rock crawl, Snow, Mud; road cars Normal, Sport, Snow) | C | X |
+| 2H / 4H / 4L, diff lock (off-roaders), auto/manual, shift | G, L, T, X/Z | LB/RB shift |
+| Refuel (hold, at any pump) | F | |
 | Repair kit (stopped) / workshop repair in the camp shed | K / F | |
 | Headlights, recover | N, R | |
 | Map, help, pause, quick save | M, H, P or Esc, F5 | Start |
@@ -45,9 +48,10 @@ Single player works without the server. For multiplayer, start the server, then 
 ```
 shared/   @orl/shared  deterministic simulation used by client AND server
   math/ terrain/ vehicles/ characters/ (controller, appearance, enter/exit)  gameplay/ (interaction)  npc/ (NPCs, dialogue)
+  world/ (road network and settlement layout, AI traffic)
   constants/ types/ schemas/ events/
 client/   @orl/client  Babylon.js game client
-  engine/ (WebGPU→WebGL2)  physics/ (Havok)  rendering/  world/  vehicles/  characters/
+  engine/ (WebGPU→WebGL2)  physics/ (Havok)  rendering/  world/ (terrain, roads, buildings, traffic)  vehicles/  characters/
   cameras/  input/  audio/  ui/  multiplayer/  save/  assets/  config/  core/ (app, logger, errors)
 server/   @orl/server  Colyseus server
   rooms/FreeRoamRoom.ts  validation/movement.ts  app.ts  index.ts

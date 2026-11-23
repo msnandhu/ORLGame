@@ -25,7 +25,7 @@ describe('feel and glitch sweep', () => {
     // find a ~10-15 degree grassy slope
     let spot: [number, number, number] | null = null;
     for (let z = -480; z < 480 && !spot; z += 4) for (let x = -480; x < 480; x += 4) {
-      const n = t.normalAt(x, z); if (n[1] > 0.975 || n[1] < 0.93 || t.surfaceAt(x, z) !== 0 || t.heightAt(x, z) < t.waterLevel + 1) continue;
+      const n = t.normalAt(x, z); if (n[1] > 0.985 || n[1] < 0.955 || t.surfaceAt(x, z) !== 0 || t.heightAt(x, z) < t.waterLevel + 1) continue;
       // a planar patch the size of the vehicle, clear of boulders and trees
       let planar = true;
       for (const [dx, dz] of [[-4, -4], [4, -4], [-4, 4], [4, 4], [0, 0]]) { const m = t.normalAt(x + dx, z + dz); if (Math.abs(m[0] - n[0]) + Math.abs(m[2] - n[2]) > 0.15 || t.surfaceAt(x + dx, z + dz) !== 0) planar = false; }

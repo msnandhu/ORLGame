@@ -28,7 +28,7 @@ function play(fromSave: boolean) {
   app.newGame(fromSave);
   $('menu').classList.add('hidden'); $('hud').classList.remove('hidden');
   app.setPaused(false); app.start();
-  app.hud.toast(fromSave ? 'Save loaded' : 'Two vehicles are parked at camp, and Marta runs the workshop: walk up and press E');
+  app.hud.toast(fromSave ? 'Save loaded' : 'Two off-roaders wait at camp and Marta runs the workshop. Road cars are parked in the towns: pause menu → Fast travel');
 }
 
 // ---------- character creator ----------
@@ -71,9 +71,12 @@ $('btn-resume').addEventListener('click', () => { app.setPaused(false); canvas.r
 $('btn-save').addEventListener('click', () => app.save());
 $('btn-recover').addEventListener('click', () => { app.vehicle.recover(); app.setPaused(false); app.hud.toast('Vehicle recovered'); });
 $('btn-camp').addEventListener('click', () => {
-  app.returnToCamp();
-  app.setPaused(false); app.hud.toast('Towed back to base camp: drive into the shed and press F for the workshop');
+  const msg = app.returnToCamp();
+  app.setPaused(false); app.hud.toast(msg);
 });
+for (const [id, place] of [['btn-go-camp', 'camp'], ['btn-go-city', 'halden'], ['btn-go-town', 'millbrook'], ['btn-go-village', 'ashby']] as const) {
+  $(id).addEventListener('click', () => { const msg = app.travelTo(place); app.setPaused(false); canvas.requestPointerLock?.(); app.hud.toast(msg); });
+}
 $('btn-settings').addEventListener('click', () => $('settings').classList.remove('hidden'));
 $('btn-help').addEventListener('click', () => $('help').classList.toggle('hidden'));
 $('btn-quit').addEventListener('click', () => { app.cancelInteraction(); app.save(); app.net.disconnect(); app.setPaused(false); app.started = false; app.audio.suspend(); showMenu(); });

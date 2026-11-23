@@ -1,7 +1,9 @@
-import { VehicleSpec, RANGER_TX4, BRAMBLE_RC2 } from './spec';
+import { VehicleSpec, RANGER_TX4, BRAMBLE_RC2, VANTA_GT, STRIX_R2, PELLA, CORVAN, HALCYON, SOLENNE_GT } from './spec';
 
 /** Every drivable vehicle, in garage order. Add a vehicle by adding a spec here. */
-export const VEHICLES: readonly VehicleSpec[] = [RANGER_TX4, BRAMBLE_RC2];
+export const VEHICLES: readonly VehicleSpec[] = [RANGER_TX4, BRAMBLE_RC2, VANTA_GT, STRIX_R2, PELLA, CORVAN, HALCYON, SOLENNE_GT];
+/** Road cars (drive on tarmac); the rest are off-roaders. */
+export const isRoadCar = (s: VehicleSpec) => s.drivetrain !== 'part-time-4wd';
 
 export function vehicleById(id: string | undefined): VehicleSpec {
   return VEHICLES.find(v => v.id === id) ?? RANGER_TX4;

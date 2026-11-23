@@ -55,6 +55,8 @@ export class CameraRig {
   /** Look direction yaw (0 = +Z). */
   get viewYaw() { const d = this.camera.getDirection(Vector3.Forward(true)); return Math.atan2(d.x, d.z); }
 
+  /** driver's eye in the vehicle frame (set from the vehicle's seat) and the bonnet camera position */
+  seatEye = new Vec3(0.42, 0.72, -0.35); hoodEye = new Vec3(0, 0.75, 1.6);
   update(dt: number, target: Vec3, heading: number, inVehicle: boolean, speed: number, q: Quat | null, freeMove?: { f: number; r: number; u: number; fast: boolean }) {
     const cam = this.camera;
     if (this.mode === 'free' && freeMove) {
@@ -69,7 +71,7 @@ export class CameraRig {
     if (this.mode === 'first-person' || this.mode === 'hood') {
       let eye: Vector3, baseYaw: number, basePitch = 0;
       if (inVehicle && q) {
-        const off = this.mode === 'hood' ? new Vec3(0, 0.75, 1.6) : new Vec3(0.42, 0.72, -0.35); // driver seat on the left (+X)
+        const off = (this.mode === 'hood' ? this.hoodEye : this.seatEye).clone(); // driver seat on the left (+X)
         off.applyQuaternion(q);
         eye = new Vector3(target.x + off.x, target.y + off.y, target.z + off.z);
         baseYaw = heading; const f = new Vec3(0, 0, 1).applyQuaternion(q); basePitch = -Math.asin(clamp(f.y, -1, 1));

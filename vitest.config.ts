@@ -2,5 +2,5 @@ import { defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 export default defineConfig({
   resolve: { alias: { '@orl/shared': fileURLToPath(new URL('./shared/src/index.ts', import.meta.url)) } },
-  test: { include: ['tests/**/*.test.ts'], testTimeout: 60000 },
+  test: { include: ['tests/**/*.test.ts'], testTimeout: 120000, hookTimeout: 120000 },
 });

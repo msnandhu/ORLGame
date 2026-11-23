@@ -1,4 +1,4 @@
-# Architecture (v0.5.0, Phase 3)
+# Architecture (v0.6.0)
 
 ## Packages
 
@@ -66,6 +66,21 @@ All vehicle behaviour lives in `shared/src/vehicles` and runs at 240 Hz, identic
 
 The vehicle spec's `look.seat` gives the driver's hip point. The door used for entering is level with it, 0.45 m outside the hull.
 
+## World: roads, settlements and traffic (v0.6)
+
+- **Layout** (`shared/src/world/layout.ts`) is data. It holds three settlements (centre, extent, street grid), road definitions (control points, class, closed or open) and the road classes: width, lanes, lane width, speed limit, embankment and maximum grade. Link roads are snapped onto the highway spline when the module loads. `planSettlements(seed)` fills the blocks between streets with buildings (kind, footprint, height, roof). It also reserves a fuel-station block and a car-park block, and returns pumps and parking spots. Everything is deterministic from the seed, so the server builds the same town.
+- **Terrain** (`shared/src/terrain/terrain.ts`) builds a road-edge distance field first. That field opens passes through the mountains and keeps mud, rivers and scatter off the roads. Settlement plateaus are levelled to the average height of their footprint and blended out over 120 m.
+- **Grading** (`gradeRoads`) runs after the trails: highway first, then roads, then streets. Each road gets a smoothed longitudinal profile, limited to its class grade going forwards and backwards. Open ends, and points on a carriageway graded earlier, are pinned, so junctions meet level. Graded carriageways are locked so lesser roads can't reshape them. The land is blended in with shoulders and embankments.
+- **Surfaces:** Asphalt on carriageways, fuel forecourts and car parks; Gravel on the shoulders; Grass inside settlements.
+- **Colliders:** buildings and pumps go in `Terrain.boxes`, indexed on a 32 m grid (`boxesNear`). Traffic cars near the player go in `Terrain.dynamicBoxes` every frame. Vehicles and characters collide with both.
+- **Road cars** are ordinary `VehicleSpec`s with a drivetrain (fwd, rwd or awd), tyre compound, LSD, downforce, optional speed limiter and allowed modes. The vehicle simulation distributes torque by drivetrain, couples AWD axles through a viscous centre and applies downforce along the body's up axis. `TYRE_GRIP` scales friction per compound and surface.
+- **Traffic** (`shared/src/world/traffic.ts`) is kinematic and runs on the shared road data. Each car keeps a lane and an arc length. It uses the Intelligent Driver Model for following, curve speed from a lateral-acceleration limit, and junction and road-end speed limits. At junctions (crossings and side roads, found from the road geometry) a car may turn, and at road ends it takes a linked road. A cone check yields to obstacles and crossing cars, a stand-off breaker clears junction deadlocks, and `bump()` stops a car that was hit. Traffic is simulated on each client and is not synchronised in multiplayer.
+- **Rendering** (`client/src/world/`):
+  - `RoadRenderer` drapes ribbons on the graded ground. Lesser roads stop where a higher-class carriageway covers them. It also draws per-class marking textures, junction squares, sidewalks with curbs and thin-instanced lamps.
+  - `BuildingRenderer` batches all walls of one facade style into one mesh, tinted with vertex colours. Roofs are flat with a parapet or gabled, and it also draws the fuel canopies and parking bays.
+  - `TrafficRenderer` keeps a small pool of merged, lite car models and assigns them to the nearest cars.
+  - `TerrainRenderer` keeps the coarse LOD for every chunk and streams full-detail chunks near the camera.
+
 ## Coordinate frame
 
 Right-handed, Y up, +Z forward for vehicles. The Babylon scene uses `useRightHandedSystem = true` so simulation values are used without conversion. The Havok heightfield expects `data[(N-1-z)*N + x]`.
@@ -76,7 +91,7 @@ Right-handed, Y up, +Z forward for vehicles. The Babylon scene uses `useRightHan
 
 ## Networking and anti-cheat
 
-Clients send `state` messages (`PlayerTransform`). The server (`server/src/validation/movement.ts`) rejects: non-finite values, unnormalised quaternions, positions outside the world, positions below the terrain, horizontal speed above the mode limit (foot 9 m/s, vehicle 55 m/s), vertical speed above 40 m/s, reported velocity that disagrees with displacement, and more than 30 messages per second. A rejected move sends a `correction` back to the last accepted position; more than 40 violations disconnects the client. Chat is sanitised and length-limited. A player's look arrives as a join option and is decoded and re-encoded by the server before it reaches the shared state.
+Clients send `state` messages (`PlayerTransform`). The server (`server/src/validation/movement.ts`) rejects: non-finite values, unnormalised quaternions, positions outside the world, positions below the terrain, horizontal speed above the mode limit (foot 9 m/s, vehicle 100 m/s), vertical speed above 40 m/s, reported velocity that disagrees with displacement, and more than 30 messages per second. A rejected move sends a `correction` back to the last accepted position; more than 40 violations disconnects the client. Chat is sanitised and length-limited. A player's look arrives as a join option and is decoded and re-encoded by the server before it reaches the shared state.
 
 ## Persistence
 
@@ -88,7 +103,11 @@ Saves go to browser `localStorage` (`orl.save.slot1`, `orl.settings.v2`, and the
 - Remote players' animation is inferred from their motion: crouching and landing recovery are not sent over the network.
 - Hands do not grip the steering wheel exactly (the seated pose approximates it). Climbing in passes through the door rather than opening it, because the doors are not separate parts.
 - Only one NPC (the camp mechanic) exists. Garage and mission interactions arrive with Phase 4 (garage) and Phase 5 (missions); the interaction system and dialogue actions are where they plug in.
-- World is one 1 km² region with no streaming or floating origin; the spec's 500 km world needs both.
+- The world is one 2.56 km region. Full-detail terrain is streamed around the camera, but the heightfield, colliders and coarse terrain for the whole region are built at load. There is no floating origin. The spec's 500 km world needs world-chunk streaming of the data itself.
+- Traffic is local to each client: in multiplayer every player sees their own traffic, and remote players' cars pass through it. Traffic cars are kinematic, so hitting one is like hitting a wall. It stops but is not pushed. They switch lanes instantly at junctions instead of following a turning arc, and there are no traffic lights.
+- Fast travel is off in multiplayer (the server would reject the jump).
+- Buildings are boxes with procedural facade textures and cannot be entered. Interiors, shops, garages and NPCs in town are not built yet.
+- World generation takes about 5–6 s on a desktop CPU (measured in Node), and the browser builds the road and building meshes on top. Loading the game in headless SwiftShader took about 56 s.
 - No PostgreSQL, Redis, accounts or authentication yet.
 - Server validates movement plausibility but does not re-simulate vehicle physics. Damage is client-side only and is not synced to other players.
 - Contacts with walls and rocks are soft penalty springs, so a nose can sink up to about 1 m into a wall in a 60 km/h crash before the car stops. This reads as crumple, but it is not a real crumple-zone model.

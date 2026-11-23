@@ -19,17 +19,24 @@ const SPLAT: Record<Surface, [number, number, number, number]> = {
   [Surface.Mud]: [0, 0.15, 0, 0.85],
   [Surface.Rock]: [0, 0.1, 0.9, 0],
   [Surface.Gravel]: [0, 0.55, 0.45, 0],
+  // roads are drawn as their own meshes; the ground under them reads as packed dirt at the edges
+  [Surface.Asphalt]: [0, 0.8, 0.2, 0],
 };
 
-interface Chunk { hi: Mesh; lo: Mesh; center: Vector3 }
+interface Chunk { hi: Mesh | null; lo: Mesh; center: Vector3; ci: number; cj: number }
 
 /**
- * Chunked terrain renderer (128 m chunks) with two LOD levels and distance culling.
+ * Chunked terrain renderer (128 m chunks) with two LOD levels and distance culling. The coarse level exists for
+ * every chunk; full-detail meshes are streamed in around the camera (a few per frame) and dropped when far away.
  * The full-detail triangle split matches Terrain.heightAt exactly, so what you see is what the physics drives on.
  */
 export class TerrainRenderer {
   readonly chunks: Chunk[] = [];
   private material: PBRMaterial;
+  private cols!: { tint: Float32Array; splat: Float32Array };
+  private static readonly C = 64;
+  /** full-detail chunks built so far / currently alive (for the stats line and tests) */
+  builtHi = 0;
   lodDistance = 300;
   viewDistance = 2500;
 
@@ -84,13 +91,13 @@ export class TerrainRenderer {
   }
 
   private build() {
-    const t = this.t, N = t.n, C = 64, cols = this.vertexData();
+    const t = this.t, N = t.n, C = TerrainRenderer.C;
+    this.cols = this.vertexData();
     for (let cj = 0; cj < N - 1; cj += C) for (let ci = 0; ci < N - 1; ci += C) {
-      const hi = this.chunkMesh(ci, cj, C, 1, cols, false);
-      const lo = this.chunkMesh(ci, cj, C, 4, cols, true);
+      const lo = this.chunkMesh(ci, cj, C, 4, this.cols, true);
       const cx = (ci + C / 2) * t.cell - t.half, cz = (cj + C / 2) * t.cell - t.half;
       lo.setEnabled(false);
-      this.chunks.push({ hi, lo, center: new Vector3(cx, t.heightAt(cx, cz), cz) });
+      this.chunks.push({ hi: null, lo, center: new Vector3(cx, t.heightAt(cx, cz), cz), ci, cj });
     }
   }
 
@@ -134,14 +141,27 @@ export class TerrainRenderer {
     return m;
   }
 
-  /** Distance-based LOD selection and culling. */
-  update(cam: Vector3) {
+  /** Build the full-detail chunks around a point right away (spawn, teleport). */
+  prime(at: Vector3) { this.update(at, 1000); }
+
+  /** Distance-based LOD selection, culling and streaming of the full-detail meshes. */
+  update(cam: Vector3, budget = 2) {
+    const want: Chunk[] = [];
     for (const c of this.chunks) {
       const d = Math.hypot(c.center.x - cam.x, c.center.z - cam.z) - 90;
       const visible = d < this.viewDistance;
-      const useLo = d > this.lodDistance;
-      c.hi.setEnabled(visible && !useLo);
+      let useLo = d > this.lodDistance;
+      if (!useLo && !c.hi) { want.push(c); useLo = true; }
+      // drop detail well outside the LOD ring (hysteresis keeps it from rebuilding at the boundary)
+      if (c.hi && d > this.lodDistance + 220) { c.hi.dispose(); c.hi = null; }
+      c.hi?.setEnabled(visible && !useLo);
       c.lo.setEnabled(visible && useLo);
+    }
+    // nearest first
+    want.sort((a, b) => Math.hypot(a.center.x - cam.x, a.center.z - cam.z) - Math.hypot(b.center.x - cam.x, b.center.z - cam.z));
+    for (const c of want.slice(0, budget)) {
+      c.hi = this.chunkMesh(c.ci, c.cj, TerrainRenderer.C, 1, this.cols, false); this.builtHi++;
+      c.hi.setEnabled(true); c.lo.setEnabled(false);
     }
   }
 }

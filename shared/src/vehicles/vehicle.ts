@@ -1,7 +1,7 @@
 import { Vec3 } from '../math/vec';
 import { RigidBody } from './rigidbody';
 import { Terrain, Surface, type BoxContactMemory } from '../terrain/terrain';
-import { VehicleSpec } from './spec';
+import { VehicleSpec, type TyreType } from './spec';
 import { clamp, smoothstep } from '../math/noise';
 import { DrivingMode, DRIVING_MODE_PROFILES } from './modes';
 import { VehicleCondition, BodyRegion, newCondition, regionOf, isPunctured } from './damage';
@@ -24,7 +24,13 @@ export const SURFACE_PROPS: Record<Surface, { mu: number; roll: number; sink: nu
   [Surface.Mud]:    { mu: 0.42, roll: 0.10,  sink: 0.09, stiff: 0.55 },
   [Surface.Rock]:   { mu: 1.05, roll: 0.015, sink: 0.0,  stiff: 1.1 },
   [Surface.Gravel]: { mu: 0.68, roll: 0.035, sink: 0.02, stiff: 0.8 },
+  [Surface.Asphalt]: { mu: 1.0, roll: 0.012, sink: 0.0, stiff: 1.15 },
 };
+/** Grip multiplier per tyre compound and surface: chunky all-terrains lose some grip on tarmac, performance tyres need it. */
+export const TYRE_GRIP: Record<TyreType, Record<Surface, number>> = {
+  'all-terrain': { [Surface.Grass]: 1, [Surface.Dirt]: 1, [Surface.Mud]: 1, [Surface.Rock]: 1, [Surface.Gravel]: 1, [Surface.Asphalt]: 0.9 },
+  road: { [Surface.Grass]: 0.82, [Surface.Dirt]: 0.85, [Surface.Mud]: 0.55, [Surface.Rock]: 0.85, [Surface.Gravel]: 0.85, [Surface.Asphalt]: 1.05 },
+  performance: { [Surface.Grass]: 0.68, [Surface.Dirt]: 0.7, [Surface.Mud]: 0.38, [Surface.Rock]: 0.78, [Surface.Gravel]: 0.72, [Surface.Asphalt]: 1.22 },};
 
 export class Wheel {
   // static
@@ -108,10 +114,14 @@ export class Vehicle {
 
   /** Select a driving mode; it also sets the transfer case and lockers the mode is designed for. */
   setDrivingMode(m: DrivingMode) {
+    const allowed = this.spec.modes;
+    if (allowed && !allowed.includes(m)) m = allowed[0];
     this.drivingMode = m;
     const r = DRIVING_MODE_PROFILES[m].recommend;
-    if (r) { this.driveMode = r.range; this.diffLock = r.diffLock; }
+    if (r && this.partTime) { this.driveMode = r.range; this.diffLock = r.diffLock; }
   }
+  /** Has a transfer case (2H/4H/4L) and lockers. */
+  get partTime() { return this.spec.drivetrain === 'part-time-4wd'; }
 
   /** Whether the engine can be (re)started now. */
   canStart(): boolean {
@@ -124,7 +134,7 @@ export class Vehicle {
 
   get ratio(): number {
     const s = this.spec;
-    const range = this.driveMode === '4L' ? s.lowRange : 1;
+    const range = this.driveMode === '4L' && this.partTime ? s.lowRange : 1;
     if (this.gear === 0) return 0;
     const g = this.gear < 0 ? -s.reverseRatio : s.gears[this.gear - 1];
     return g * s.finalDrive * range;
@@ -166,6 +176,7 @@ export class Vehicle {
   }
 
   toggleDriveMode() {
+    if (!this.partTime) return;
     this.driveMode = this.driveMode === '2H' ? '4H' : this.driveMode === '4H' ? '4L' : '2H';
   }
   shiftUp() { if (this.gear < this.spec.gears.length) { this.gear = this.gear === -1 ? 0 : this.gear + 1; this.shiftTimer = 0.2; } }
@@ -180,7 +191,14 @@ export class Vehicle {
     return c[c.length - 1][1];
   }
 
-  private driven(w: Wheel) { return this.driveMode === '2H' ? !w.front : true; }
+  private driven(w: Wheel) {
+    switch (this.spec.drivetrain) {
+      case 'fwd': return w.front;
+      case 'rwd': return !w.front;
+      case 'awd': return true;
+      default: return this.driveMode === '2H' ? !w.front : true;
+    }
+  }
 
   step(dt: number, input: VehicleInput) {
     const s = this.spec, b = this.body, T = this.terrain;
@@ -329,7 +347,8 @@ export class Vehicle {
     let tq = 0;
     if (this.engineOn) {
       const limiter = 1 - smoothstep(s.redlineRpm - 150, s.redlineRpm + 80, Math.abs(wheelRpm));
-      tq = this.torqueAt(this.rpm) * throttle * limiter * this.powerFactor();
+      const vLimit = s.vmaxKmh ? 1 - smoothstep(s.vmaxKmh - 4, s.vmaxKmh, this.speedKmh) : 1;
+      tq = this.torqueAt(this.rpm) * throttle * limiter * vLimit * this.powerFactor();
       // engine braking when off-throttle and engaged
       tq -= (1 - throttle) * (25 + this.rpm * 0.018) * (Math.abs(wheelRpm) > s.idleRpm ? 1 : 0) * Math.sign(wheelRpm);
       this.fuel = Math.max(0, this.fuel - (0.00012 + throttle * this.rpm * 2.2e-7) * dt * 60);
@@ -382,7 +401,7 @@ export class Vehicle {
         _wl.crossVectors(n, _wf).normalize(); // points to vehicle's left (+X local)
         b.pointVelocity(w.contactPoint, _v);
         const vx = _v.dot(_wf), vy = _v.dot(_wl);
-        const mu = sp.mu * s.tireGrip * (w.inWater ? 0.85 : 1) * (isPunctured(cond, wi) ? 0.6 : 1 - 0.12 * cond.tyres[wi]);
+        const mu = sp.mu * s.tireGrip * TYRE_GRIP[s.tyre ?? 'all-terrain'][w.surface] * (w.inWater ? 0.85 : 1) * (isPunctured(cond, wi) ? 0.6 : 1 - 0.12 * cond.tyres[wi]);
         const N = Math.min(w.load, s.mass * GRAVITY * 1.6);
         const maxF = mu * N;
         // Longitudinal: slip ratio with low-speed denominator
@@ -422,8 +441,16 @@ export class Vehicle {
     const W = this.wheels;
     const ie = (w: Wheel) => s.wheelInertia + (this.driven(w) ? engInertiaPerWheel : 0);
     const lockPair = (a: Wheel, c: Wheel) => { const ia = ie(a), ic = ie(c); const m = (a.omega * ia + c.omega * ic) / (ia + ic); a.omega = m; c.omega = m; };
-    if (this.diffLock) { lockPair(W[0], W[1]); if (this.driveMode !== '2H' || true) lockPair(W[2], W[3]); }
-    if (this.driveMode !== '2H') {
+    const lockFrac = (a: Wheel, c: Wheel, k: number) => { const ia = ie(a), ic = ie(c); const m = (a.omega * ia + c.omega * ic) / (ia + ic); a.omega += (m - a.omega) * k; c.omega += (m - c.omega) * k; };
+    if (this.diffLock && this.partTime) { lockPair(W[0], W[1]); lockPair(W[2], W[3]); }
+    else if (s.lsd) { if (this.driven(W[0])) lockFrac(W[0], W[1], s.lsd * 0.5); if (this.driven(W[2])) lockFrac(W[2], W[3], s.lsd * 0.5); }
+    if (s.drivetrain === 'awd') {
+      // permanent AWD: a viscous centre differential lets the axles differ a little, then shares torque
+      const fAvg = (W[0].omega + W[1].omega) / 2, rAvg = (W[2].omega + W[3].omega) / 2, k = 0.35;
+      const If = ie(W[0]) + ie(W[1]), Ir = ie(W[2]) + ie(W[3]);
+      const m = (fAvg * If + rAvg * Ir) / (If + Ir);
+      W[0].omega += (m - fAvg) * k; W[1].omega += (m - fAvg) * k; W[2].omega += (m - rAvg) * k; W[3].omega += (m - rAvg) * k;
+    } else if (this.partTime && this.driveMode !== '2H') {
       // part-time 4WD: transfer case locks front & rear driveshaft speeds together
       const fAvg = (W[0].omega + W[1].omega) / 2, rAvg = (W[2].omega + W[3].omega) / 2;
       const If = ie(W[0]) + ie(W[1]), Ir = ie(W[2]) + ie(W[3]);
@@ -499,6 +526,7 @@ export class Vehicle {
     // ---------- Aerodynamic drag ----------
     const sp2 = b.vel.length();
     b.force.addScaledVector(b.vel, -s.dragCoef * sp2);
+    if (s.downforce) { const vf = b.vel.dot(_fwd); b.force.addScaledVector(_up, -s.downforce * vf * vf); }
 
     b.integrate(dt, GRAVITY);
 

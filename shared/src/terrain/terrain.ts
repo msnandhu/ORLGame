@@ -1,17 +1,22 @@
 import { Noise2D, mulberry32, clamp, lerp, smoothstep } from '../math/noise';
+import { ROAD_DEFS, SETTLEMENTS, buildRoad, planSettlements, type Road, type Settlement, type Building, type Lot, type ParkingSpot } from '../world/layout';
 
-export enum Surface { Grass = 0, Dirt = 1, Mud = 2, Rock = 3, Gravel = 4 }
-export const SURFACE_NAMES = ['Grass', 'Dirt trail', 'Mud', 'Rock', 'Gravel'];
+export enum Surface { Grass = 0, Dirt = 1, Mud = 2, Rock = 3, Gravel = 4, Asphalt = 5 }
+export const SURFACE_NAMES = ['Grass', 'Dirt trail', 'Mud', 'Rock', 'Gravel', 'Asphalt'];
 
 export interface Boulder { x: number; y: number; z: number; r: number }
-export interface StaticBox { cx: number; cy: number; cz: number; hx: number; hy: number; hz: number; yaw: number; kind: string }
+export interface StaticBox { cx: number; cy: number; cz: number; hx: number; hy: number; hz: number; yaw: number; kind: string; /** index into Terrain.buildings for buildings */ ref?: number }
 /** Which face of which box a contact point entered through (see Terrain.boxPenetration). */
 export interface BoxContactMemory { box: number; axis: number; sign: number }
 export interface Tree { x: number; z: number; y: number; r: number; h: number; kind: number }
 
-/** Terrain data for the Phase 1 region: "Redstone Valley" (1.024 km x 1.024 km). Pure data, no rendering. */
+/**
+ * Terrain data for the region: Redstone Valley (the off-road country around base camp) inside a 2.56 km
+ * square with Halden City, Millbrook town and Ashby Hollow village, a highway loop and connecting roads.
+ * Pure data, no rendering.
+ */
 export class Terrain {
-  readonly size = 1024;          // metres per side
+  readonly size = 2560;          // metres per side
   readonly cell = 2;             // metres between height samples
   readonly n: number;            // samples per side
   readonly half: number;
@@ -24,6 +29,18 @@ export class Terrain {
   readonly trails: [number, number][][] = [];
   readonly boxes: StaticBox[] = [];
   readonly fuelPump = { x: 12, z: 6 };
+  /** every fuel pump: camp first, then the settlement fuel stations */
+  readonly fuelPumps: { x: number; z: number }[] = [{ x: 12, z: 6 }];
+  readonly roads: Road[] = [];
+  readonly settlements: Settlement[] = SETTLEMENTS.map(s => ({ ...s, xs: [...s.xs], zs: [...s.zs] }));
+  readonly buildings: Building[] = [];
+  readonly lots: Lot[] = [];
+  readonly parking: ParkingSpot[] = [];
+  /** moving obstacles (traffic) that vehicles and people collide with; replaced every frame by the owner */
+  dynamicBoxes: StaticBox[] = [];
+  private roadEdge!: Float32Array;   // metres from the nearest road edge (negative on the road)
+  private boxGrid = new Map<number, number[]>();
+  private readonly bcell = 32;
   readonly spawn = { x: 0, z: 0, heading: 0 };
   private grid = new Map<number, { b: number[]; t: number[] }>();
   private readonly gcell = 16;
@@ -39,6 +56,26 @@ export class Terrain {
     const n2 = new Noise2D(seed + 7);
     this.buildTrails();
     this.buildTrailField();
+    for (const d of ROAD_DEFS) this.roads.push(buildRoad(d));
+    this.buildRoadField();
+    // settlement plateaus sit at the average height of the rolling hills under them
+    // rolling hills; the plains outside the valley ring sit a little higher, so they drain instead of pooling
+    const plainsAt = (x: number, z: number) => smoothstep(600, 820, Math.max(Math.abs(x), Math.abs(z)));
+    const hills = (x: number, z: number) => 18 + noise.fbm(x / 320, z / 320, 5) * 28 + noise.fbm(x / 90, z / 90, 3) * 5 + plainsAt(x, z) * 7;
+    for (const st of this.settlements) {
+      let a = 0, c = 0;
+      for (let u = -1; u <= 1; u += 0.25) for (let v = -1; v <= 1; v += 0.25) { a += hills(st.cx + u * st.hx, st.cz + v * st.hz); c++; }
+      st.y = Math.max(this.waterLevel + 6, a / c);
+    }
+    const plateau = (x: number, z: number): [number, number] => {
+      let w = 0, y = 0;
+      for (const st of this.settlements) {
+        const dd = Math.hypot(Math.max(0, Math.abs(x - st.cx) - st.hx - 12), Math.max(0, Math.abs(z - st.cz) - st.hz - 12));
+        const k = 1 - smoothstep(0, 120, dd);
+        if (k > w) { w = k; y = st.y; }
+      }
+      return [w, y];
+    };
 
     const riverZ = (x: number) => 230 + 70 * Math.sin(x / 160) + 25 * Math.sin(x / 61 + 1.3);
     for (let j = 0; j < N; j++) {
@@ -46,18 +83,27 @@ export class Terrain {
         const x = i * this.cell - this.half, z = j * this.cell - this.half;
         const r = Math.hypot(x, z);
         // Rolling hills
-        let h = 18 + noise.fbm(x / 320, z / 320, 5) * 28 + noise.fbm(x / 90, z / 90, 3) * 5;
-        // Ridged rocky mountains rising toward the region edges and in the north-west massif
-        const rim = smoothstep(330, 500, Math.max(Math.abs(x), Math.abs(z)));
+        let h = hills(x, z);
+        const plains = plainsAt(x, z);
+        // Ridged mountains: a ring around Redstone Valley, the region's outer edge and the north-west massif.
+        // Roads cut passes through them.
+        const cheb = Math.max(Math.abs(x), Math.abs(z));
+        const ring = smoothstep(330, 470, cheb) * (1 - smoothstep(560, 720, cheb));
+        const edge = smoothstep(1130, 1270, cheb);
+        const rim = Math.max(ring, edge);
         const massif = smoothstep(220, 60, Math.hypot(x + 260, z + 250));
-        const mount = Math.max(rim, massif);
+        const roadE = this.roadEdge[j * N + i];
+        const pass = smoothstep(15, 170, roadE);
+        const [plat, platY] = plateau(x, z);
+        const mount = Math.max(rim, massif) * pass * (1 - plat);
         h += mount * (noise.ridged(x / 210, z / 210, 5) * 95 + 15);
         // Rock-crawl ridge east of camp
         const crawl = smoothstep(90, 20, Math.hypot(x - 190, z + 60));
         h += crawl * (10 + n2.ridged(x / 30, z / 30, 3) * 6);
         // River valley carved to a common water level
         const dRiver = Math.abs(z - riverZ(x));
-        const carve = 1 - smoothstep(14, 70, dRiver);
+        // the river runs through the valley only, fading out beyond the mountain ring
+        const carve = (1 - smoothstep(14, 70, dRiver)) * (1 - smoothstep(600, 760, Math.abs(x)));
         const dt = this.trailDist(x, z);
         const ford = 1 - smoothstep(5, 16, dt); // shallow fords where trails cross water
         const depth = lerp(2.2, 0.55, ford);
@@ -65,19 +111,20 @@ export class Terrain {
         // Base camp flattening
         const camp = 1 - smoothstep(35, 70, r);
         h = lerp(h, 16, camp);
+        h = lerp(h, platY, plat);
         // Trails: gently flattened, crowned dirt tracks
         const onTrail = 1 - smoothstep(3, 9, dt);
         if (onTrail > 0) h = lerp(h, h - 0.25, onTrail);
         // Mud basins: low flat places + noise mask, slightly sunken
-        const mudMask = smoothstep(0.25, 0.5, n2.fbm(x / 120 + 40, z / 120, 3)) * (1 - mount) * (1 - camp * 0.9);
+        const mudMask = smoothstep(0.25, 0.5, n2.fbm(x / 120 + 40, z / 120, 3)) * (1 - mount) * (1 - camp * 0.9) * (1 - plat) * smoothstep(4, 30, roadE) * (1 - plains * 0.8);
         const nearRiver = 1 - smoothstep(20, 60, dRiver);
-        const mudAmt = clamp(Math.max(mudMask, nearRiver * 0.8 * smoothstep(0.0, 0.3, n2.noise(x / 40, z / 40) + 0.3)), 0, 1);
+        const mudAmt = clamp(Math.max(mudMask, nearRiver * carve * 0.8 * smoothstep(0.0, 0.3, n2.noise(x / 40, z / 40) + 0.3) * (1 - plat)), 0, 1);
         h -= mudAmt * 0.8;
         // trails never drop into deep water: build up a causeway / ford no deeper than ~0.5 m
         const ford2 = 1 - smoothstep(6, 18, dt);
         if (h < this.waterLevel - 0.5) h = lerp(h, this.waterLevel - 0.5, ford2);
         // Small-scale bumps (ruts / roughness)
-        h += noise.noise(x / 6, z / 6) * (0.18 + mount * 0.6 + crawl * 0.15) * (1 - onTrail * 0.7);
+        h += noise.noise(x / 6, z / 6) * (0.18 + mount * 0.6 + crawl * 0.15) * (1 - onTrail * 0.7) * (1 - plat * 0.85);
         const k = j * N + i;
         this.heights[k] = h;
         this.mudDepth[k] = mudAmt;
@@ -103,6 +150,7 @@ export class Terrain {
         this.heights[k] += (target - this.heights[k]) * w * 0.9;
       }
     }
+    this.gradeRoads();
     // Classify surfaces from slope and masks
     for (let j = 0; j < N; j++) {
       for (let i = 0; i < N; i++) {
@@ -119,13 +167,165 @@ export class Terrain {
         if (h < this.waterLevel + 0.6 && s !== Surface.Mud) s = Surface.Gravel;
         if (slope > 0.75 || (h > 75 && slope > 0.35)) s = Surface.Rock;
         if (Math.hypot(x - 190, z + 60) < 70 && slope > 0.3) s = Surface.Rock;
+        const re = this.roadEdge[k];
+        if (re < 0.3) s = Surface.Asphalt; else if (re < 1.8 && s !== Surface.Rock) s = Surface.Gravel;
+        else if (this.inSettlement(x, z, 6)) s = Surface.Grass;
         if (s !== Surface.Mud) this.mudDepth[k] = 0;
         this.surface[k] = s;
       }
     }
     this.scatter(seed);
     this.buildCamp();
+    this.buildSettlements(seed);
+    this.boxes.forEach((_, i) => this.indexBox(i));
   }
+
+  /** Inside a settlement's footprint (plus a margin). */
+  inSettlement(x: number, z: number, margin = 0): Settlement | null {
+    for (const s of this.settlements) if (Math.abs(x - s.cx) < s.hx + margin && Math.abs(z - s.cz) < s.hz + margin) return s;
+    return null;
+  }
+  /** Metres from the nearest road edge (negative on the carriageway). */
+  roadEdgeDist(x: number, z: number): number {
+    const N = this.n;
+    const fx = clamp((x + this.half) / this.cell, 0, N - 1.0001), fz = clamp((z + this.half) / this.cell, 0, N - 1.0001);
+    const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j, F = this.roadEdge;
+    return (F[j * N + i] * (1 - u) + F[j * N + i + 1] * u) * (1 - v) + (F[(j + 1) * N + i] * (1 - u) + F[(j + 1) * N + i + 1] * u) * v;
+  }
+
+  /** 2D distance-to-road-edge field (capped), used for mountain passes, surfaces and keeping props off roads. */
+  private buildRoadField() {
+    const N = this.n, f = new Float32Array(N * N).fill(200);
+    for (const r of this.roads) {
+      const R = (r.kind === 'street' ? 30 : 175) + r.cls.width / 2, hw = r.cls.width / 2;
+      this.rasterRoad(r, R, (k, d) => { const e = d - hw; if (e < f[k]) f[k] = e; });
+    }
+    this.roadEdge = f;
+  }
+  /** Visit every grid sample within R of the road's centreline: cb(index, distance, segment, t). */
+  private rasterRoad(r: Road, R: number, cb: (k: number, d: number, seg: number, t: number) => void) {
+    const N = this.n, P = r.pts;
+    for (let sgi = 0; sgi < P.length - 1; sgi++) {
+      const [ax, az] = P[sgi], [bx, bz] = P[sgi + 1];
+      const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+      const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - R + this.half) / this.cell)), i1 = Math.min(N - 1, Math.ceil((Math.max(ax, bx) + R + this.half) / this.cell));
+      const j0 = Math.max(0, Math.floor((Math.min(az, bz) - R + this.half) / this.cell)), j1 = Math.min(N - 1, Math.ceil((Math.max(az, bz) + R + this.half) / this.cell));
+      for (let j = j0; j <= j1; j++) {
+        const z = j * this.cell - this.half;
+        for (let i = i0; i <= i1; i++) {
+          const x = i * this.cell - this.half;
+          const t = clamp(((x - ax) * dx + (z - az) * dz) / L2, 0, 1);
+          const d = Math.hypot(x - ax - dx * t, z - az - dz * t);
+          if (d <= R) cb(j * N + i, d, sgi, t);
+        }
+      }
+    }
+  }
+
+  /**
+   * Grade every road into the heightfield: a smoothed, grade-limited longitudinal profile, a flat carriageway
+   * with shoulders, and embankments or cuttings blending back to the land. Highways go first so the roads that
+   * join them meet their surface.
+   */
+  private gradeRoads() {
+    const order = [...this.roads].sort((a, b) => ['highway', 'road', 'street'].indexOf(a.kind) - ['highway', 'road', 'street'].indexOf(b.kind));
+    const N = this.n, bestD = new Float32Array(N * N).fill(1e9), bestH = new Float32Array(N * N);
+    // carriageways already graded: later (lesser) roads join them without reshaping them
+    const locked = new Uint8Array(N * N);
+    for (const r of order) {
+      const P = r.pts, raw = P.map(([x, z]) => this.heightAt(x, z));
+      let prof = raw.slice();
+      const win = r.kind === 'highway' ? 14 : r.kind === 'road' ? 8 : 0;
+      for (let pass = 0; pass < 3 && win > 0; pass++) {
+        const out = prof.slice();
+        for (let i = 0; i < prof.length; i++) {
+          let a = 0, c = 0;
+          for (let k = -win; k <= win; k++) {
+            let q = i + k;
+            if (r.closed) q = ((q % (prof.length - 1)) + (prof.length - 1)) % (prof.length - 1); else q = clamp(q, 0, prof.length - 1);
+            a += prof[q]; c++;
+          }
+          out[i] = a / c;
+        }
+        prof = out;
+      }
+      // open roads keep their end heights so they meet whatever they join
+      if (!r.closed && win > 0) for (const [i, w] of [[0, 1], [prof.length - 1, 1]] as const) {
+        for (let k = 0; k < 8; k++) { const q = i === 0 ? k : i - k; if (q < 0 || q >= prof.length) continue; const b = (1 - k / 8) * w; prof[q] = lerp(prof[q], raw[q], b); }
+      }
+      for (let i = 0; i < prof.length; i++) prof[i] = Math.max(prof[i], this.waterLevel + 1.6);
+      // grade limit, forwards then backwards
+      const g = r.cls.maxGrade;
+      // pinned: open ends, and any point on a carriageway graded earlier (a junction meets it level)
+      const pinned: number[] = [];
+      for (let i = 0; i < P.length; i++) {
+        const ci = Math.round((P[i][0] + this.half) / this.cell), cj = Math.round((P[i][1] + this.half) / this.cell);
+        if ((!r.closed && (i === 0 || i === P.length - 1)) || locked[clamp(cj, 0, N - 1) * N + clamp(ci, 0, N - 1)]) pinned.push(i);
+      }
+      const pin = () => { for (const i of pinned) prof[i] = Math.max(raw[i], this.waterLevel + 1.6); };
+      for (let rep = 0; rep < 4; rep++) {
+        pin();
+        for (let i = 1; i < prof.length; i++) { const ds = r.cum[i] - r.cum[i - 1]; prof[i] = clamp(prof[i], prof[i - 1] - g * ds, prof[i - 1] + g * ds); }
+        pin();
+        for (let i = prof.length - 2; i >= 0; i--) { const ds = r.cum[i + 1] - r.cum[i]; prof[i] = clamp(prof[i], prof[i + 1] - g * ds, prof[i + 1] + g * ds); }
+      }
+      if (r.closed) prof[prof.length - 1] = prof[0];
+      r.profile = prof;
+      // blend the land to the road
+      const hw = r.cls.width / 2 + 1.5, E = r.cls.embankment, touched: number[] = [];
+      this.rasterRoad(r, hw + E, (k, d, sg, t) => {
+        if (bestD[k] === 1e9) touched.push(k);
+        if (d < bestD[k]) { bestD[k] = d; bestH[k] = prof[sg] + (prof[sg + 1] - prof[sg]) * t; }
+      });
+      for (const k of touched) {
+        const d = bestD[k], w = d <= hw ? 1 : 1 - smoothstep(hw, hw + E, d);
+        if (!locked[k]) this.heights[k] = lerp(this.heights[k], bestH[k] - 0.02, w);
+        bestD[k] = d <= hw ? -1 : 1e9;
+      }
+      for (const k of touched) if (bestD[k] === -1) { locked[k] = 1; bestD[k] = 1e9; }
+    }
+  }
+
+  /** Buildings, fuel stations and car lots of the three settlements, as static colliders. */
+  private buildSettlements(seed: number) {
+    const plan = planSettlements(seed);
+    for (const b of plan.buildings) {
+      b.y = this.heightAt(b.x, b.z);
+      const ref = this.buildings.length;
+      this.buildings.push(b);
+      this.boxes.push({ kind: b.kind, cx: b.x, cy: b.y + b.h / 2 - 0.5, cz: b.z, hx: b.w / 2, hy: b.h / 2 + 0.5, hz: b.d / 2, yaw: b.yaw, ref });
+    }
+    for (const p of plan.pumps) {
+      this.fuelPumps.push(p);
+      this.boxes.push({ kind: 'pump', cx: p.x, cy: this.heightAt(p.x, p.z) + 0.9, cz: p.z, hx: 0.4, hy: 0.9, hz: 0.3, yaw: 0 });
+    }
+    this.lots.push(...plan.lots);
+    this.parking.push(...plan.parking);
+    // fuel forecourts and car parks are paved
+    const N = this.n;
+    for (const l of plan.lots) for (let z = l.z0; z <= l.z1; z += this.cell) for (let x = l.x0; x <= l.x1; x += this.cell) {
+      const i = Math.round((x + this.half) / this.cell), j = Math.round((z + this.half) / this.cell);
+      if (i >= 0 && j >= 0 && i < N && j < N) this.surface[j * N + i] = Surface.Asphalt;
+    }
+  }
+
+  private bkey(cx: number, cz: number) { return (cx + 4096) * 8192 + (cz + 4096); }
+  private indexBox(i: number) {
+    const b = this.boxes[i], r = Math.hypot(b.hx, b.hz) + 3;
+    for (let cx = Math.floor((b.cx - r) / this.bcell); cx <= Math.floor((b.cx + r) / this.bcell); cx++)
+      for (let cz = Math.floor((b.cz - r) / this.bcell); cz <= Math.floor((b.cz + r) / this.bcell); cz++) {
+        const k = this.bkey(cx, cz); let l = this.boxGrid.get(k); if (!l) { l = []; this.boxGrid.set(k, l); } l.push(i);
+      }
+  }
+  /** Rebuild the static box index after `boxes` was edited (tests, editors). */
+  reindexBoxes() { this.boxGrid.clear(); this.boxes.forEach((_, i) => this.indexBox(i)); }
+  private static readonly NONE: number[] = [];
+  /** Static boxes that can touch a point (bounding circle + 3 m); dynamic boxes are separate. */
+  boxesNear(x: number, z: number): readonly number[] {
+    return this.boxGrid.get(this.bkey(Math.floor(x / this.bcell), Math.floor(z / this.bcell))) ?? Terrain.NONE;
+  }
+  /** Static box by index, then dynamic boxes after them. */
+  boxAt(i: number): StaticBox { return i < this.boxes.length ? this.boxes[i] : this.dynamicBoxes[i - this.boxes.length]; }
 
   /** Base camp structures as static colliders (shared by physics and rendering). */
   private buildCamp() {
@@ -146,8 +346,10 @@ export class Terrain {
    */
   boxPenetration(x: number, y: number, z: number, pad: number, nOut: [number, number, number], mem?: BoxContactMemory): number {
     let best = 0, hitBox = -1, hitAxis = 0, hitSign = 0;
-    for (let bi = 0; bi < this.boxes.length; bi++) {
-      const b = this.boxes[bi];
+    const near = this.boxesNear(x, z), nStatic = near.length, nAll = nStatic + this.dynamicBoxes.length;
+    for (let q = 0; q < nAll; q++) {
+      const bi = q < nStatic ? near[q] : this.boxes.length + (q - nStatic);
+      const b = this.boxAt(bi);
       const dx = x - b.cx, dy = y - b.cy, dz = z - b.cz;
       if (Math.abs(dx) > b.hx + b.hz + pad + 1 || Math.abs(dz) > b.hx + b.hz + pad + 1) continue;
       const c = Math.cos(b.yaw), s = Math.sin(b.yaw);
@@ -239,11 +441,12 @@ export class Terrain {
   private scatter(seed: number) {
     const rnd = mulberry32(seed ^ 0x5eed);
     // Boulders: dense in the crawl zone and massif, sparse elsewhere
-    for (let n = 0; n < 900; n++) {
+    const clear = (x: number, z: number, m: number) => this.roadEdgeDist(x, z) < m || !!this.inSettlement(x, z, m + 10);
+    for (let n = 0; n < 2400; n++) {
       let x: number, z: number;
       if (n < 220) { const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * 70; x = 190 + Math.cos(a) * d; z = -60 + Math.sin(a) * d; }
       else { x = (rnd() - 0.5) * (this.size - 40); z = (rnd() - 0.5) * (this.size - 40); }
-      if (Math.hypot(x, z) < 60 || this.trailDist(x, z) < 7) continue;
+      if (Math.hypot(x, z) < 60 || this.trailDist(x, z) < 7 || clear(x, z, 8)) continue;
       const surf = this.surfaceAt(x, z);
       if (n >= 220 && surf !== Surface.Rock && rnd() > 0.25) continue;
       const r = n < 220 ? 0.5 + rnd() * 1.4 : 0.6 + rnd() * rnd() * 3.5;
@@ -252,10 +455,10 @@ export class Terrain {
       this.add({ x, y, z, r }, 'b');
     }
     // Trees: avoid water, trails, rock and steep slopes
-    for (let n = 0; n < 9000 && this.trees.length < 3200; n++) {
+    for (let n = 0; n < 40000 && this.trees.length < 12000; n++) {
       const x = (rnd() - 0.5) * (this.size - 20), z = (rnd() - 0.5) * (this.size - 20);
       const h = this.heightAt(x, z);
-      if (h < this.waterLevel + 1 || Math.hypot(x, z) < 55 || this.trailDist(x, z) < 6) continue;
+      if (h < this.waterLevel + 1 || Math.hypot(x, z) < 55 || this.trailDist(x, z) < 6 || clear(x, z, 7)) continue;
       const s = this.surfaceAt(x, z);
       if (s === Surface.Rock || s === Surface.Mud || s === Surface.Gravel) continue;
       const nrm = this.normalAt(x, z);

@@ -46,15 +46,20 @@ export class Scenery {
       pole: pbr(scene, 'steel', new Color3(0.6, 0.62, 0.64), 0.35, 0.85),
     };
     for (const b of t.boxes) {
+      if (b.ref !== undefined) continue; // buildings have their own renderer
       const m = MeshBuilder.CreateBox(`camp-${b.kind}`, { width: b.hx * 2, height: b.hy * 2, depth: b.hz * 2 }, scene);
       m.position.set(b.cx, b.cy, b.cz); m.rotation.y = b.yaw; m.material = mats[b.kind]; m.receiveShadows = true;
       this.casters.push(m); m.freezeWorldMatrix();
     }
     const h = t.heightAt(0, 0);
     const pad = MeshBuilder.CreateBox('pump-pad', { width: 4, height: 0.12, depth: 3 }, scene); pad.position.set(t.fuelPump.x, h + 0.03, t.fuelPump.z); pad.material = mats.pole; pad.receiveShadows = true;
-    const screen = MeshBuilder.CreatePlane('pump-screen', { width: 0.55, height: 0.3 }, scene);
     const sm = pbr(scene, 'pump-screen', new Color3(1, 0.83, 0.42), 0.5); sm.emissiveColor = new Color3(0.9, 0.6, 0.1);
-    screen.material = sm; screen.position.set(t.fuelPump.x, h + 1.4, t.fuelPump.z + 0.31); screen.rotation.y = Math.PI;
+    for (const p of t.fuelPumps) for (const side of [1, -1]) {
+      const screen = MeshBuilder.CreatePlane('pump-screen', { width: 0.55, height: 0.3 }, scene);
+      const hy = t.heightAt(p.x, p.z);
+      screen.material = sm; screen.position.set(p.x, hy + 1.4, p.z + side * (p === t.fuelPumps[0] ? 0.31 : 0.31)); screen.rotation.y = side > 0 ? Math.PI : 0;
+      if (p === t.fuelPumps[0]) break;
+    }
     const floor = MeshBuilder.CreateBox('shed-floor', { width: 10, height: 0.1, depth: 8 }, scene); floor.position.set(-18, h + 0.02, 14); floor.material = mats.pole; floor.receiveShadows = true;
     this.flag = MeshBuilder.CreateGround('flag', { width: 2.2, height: 1.3, subdivisions: 8, updatable: true }, scene);
     this.flag.rotation.x = -Math.PI / 2; this.flag.position.set(5.15, h + 8.2, -8);

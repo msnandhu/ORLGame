@@ -9,7 +9,7 @@ import { Surface, type Vehicle } from '@orl/shared';
 import { softDot } from '../assets/proceduralTextures';
 
 const SURF: Record<number, [number, number, number]> = {
-  [Surface.Grass]: [0.42, 0.38, 0.27], [Surface.Dirt]: [0.6, 0.51, 0.38], [Surface.Mud]: [0.24, 0.17, 0.11], [Surface.Rock]: [0.55, 0.53, 0.5], [Surface.Gravel]: [0.64, 0.61, 0.55],
+  [Surface.Asphalt]: [0.36, 0.35, 0.34], [Surface.Grass]: [0.42, 0.38, 0.27], [Surface.Dirt]: [0.6, 0.51, 0.38], [Surface.Mud]: [0.24, 0.17, 0.11], [Surface.Rock]: [0.55, 0.53, 0.5], [Surface.Gravel]: [0.64, 0.61, 0.55],
 };
 
 /** Dust, mud and water spray per wheel, emission driven by the tyre model (slip, surface, speed, water). */

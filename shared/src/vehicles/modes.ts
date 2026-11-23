@@ -61,6 +61,7 @@ export const DRIVING_MODE_PROFILES: Record<DrivingMode, DrivingModeProfile> = {
   },
 };
 
-export function nextDrivingMode(m: DrivingMode): DrivingMode {
-  return DRIVING_MODES[(DRIVING_MODES.indexOf(m) + 1) % DRIVING_MODES.length];
+/** Next mode in the cycle; `allowed` restricts it to the modes a vehicle offers. */
+export function nextDrivingMode(m: DrivingMode, allowed: readonly DrivingMode[] = DRIVING_MODES): DrivingMode {
+  return allowed[(allowed.indexOf(m) + 1) % allowed.length];
 }

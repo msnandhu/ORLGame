@@ -16,3 +16,5 @@ export * from './characters/appearance';
 export * from './characters/vehicleTransition';
 export * from './gameplay/interaction';
 export * from './npc/npc';
+export * from './world/layout';
+export * from './world/traffic';

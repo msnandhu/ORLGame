@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.6.0: Towns, highways and road cars
+
+- **A bigger world.** The map grows from 1 km to 2.56 km across (6.6 km²). The off-road valley, trails and rock-crawl ridge stay in the middle. Farmland plains open up beyond the valley ring, and the mountains now ring the outer edge with passes where the roads go through.
+- **Three settlements, each on its own levelled plateau.**
+  - **Halden City** (east): a 7 × 7 street grid with glass towers downtown, then offices and apartment blocks further out.
+  - **Millbrook** (north-west): a 5 × 5 grid of shops with flats above, plus apartment blocks.
+  - **Ashby Hollow** (south-west): a village of gabled houses and a barn.
+  - Each has a fuel station (two pumps under a canopy, plus a shop) and a car park.
+  - All 179 buildings are solid. Vehicles and people collide with them, and they are placed clear of every road and sidewalk.
+- **Roads.**
+  - **Highway 1** is a 7.2 km, four-lane loop around the world, with link roads to each settlement.
+  - Three valley roads run from base camp to the city, the town and the village.
+  - Every road is graded into the terrain with a smoothed profile and a class grade limit (highway 6%, road 9%, street 10%), plus embankments and cuttings. Junctions meet level.
+  - Roads have their own Asphalt surface with a gravel shoulder, painted markings per class, plain junction squares where streets cross, raised sidewalks with curbs, and 252 street lamps.
+- **Six road cars, all data-driven and drivable**, next to the two off-roaders:
+
+  | Car | Class | Body | Drive | 0–100 km/h (measured) |
+  |---|---|---|---|---|
+  | Vanta GT | racing | coupe | RWD | 4.4 s |
+  | Strix R2 | racing | hot hatch | AWD | 4.2 s |
+  | Pella 1.4 | common | hatch | FWD | 12.5 s |
+  | Corvan 2.0 | common | saloon | FWD | 10.5 s |
+  | Halcyon Grand | luxury | saloon | AWD | 4.2 s (limited to 250 km/h) |
+  | Solenne GT | luxury | coupe | RWD | 4.7 s |
+
+  - The drivetrain is real in the simulation. FWD drives the front wheels, RWD the rear, and AWD both through a viscous centre coupling. Limited-slip differentials are set per car.
+  - Racing cars get aerodynamic downforce. Tyre compounds (all-terrain, road, performance) change grip by surface: performance tyres grip hardest on asphalt and worst in mud.
+  - Road cars have Normal, Sport and Snow modes. G and L tell you they have no transfer case or lockers, and the HUD shows FWD, RWD or AWD.
+  - The bodies are new original procedural models. Proportions come from each spec, the cabin is open so the driver shows, and the cockpit camera sits at the driver's eye. Racing cars have stripes, a splitter and a wing; luxury cars have chrome trim.
+- **AI traffic.**
+  - 70 cars drive the network on their lane: IDM car-following, slowing for curves and junctions, and turning at crossings, highway exits and road ends.
+  - They give way to you, your vehicles and pedestrians in their path. They collide with you as solid boxes and stop for a few seconds when hit.
+  - The nearest cars within about 400 m are drawn with a pool of 12 simplified models. Each model is merged into one body mesh and four wheel meshes.
+- **Gameplay.**
+  - Road cars are parked in the car parks: racing and luxury in Halden City, everyday cars in Millbrook and Ashby Hollow.
+  - Refuel at any pump.
+  - "Tow vehicle home" takes a car back to its own bay or car park.
+  - **Fast travel** (pause menu, single player only) goes to camp, Halden City, Millbrook or Ashby Hollow.
+  - Parked vehicles far from you sleep until something comes near.
+- **Map and minimap.** Both show roads (the highway in gold), buildings, every fuel pump and the settlement names.
+- **Streaming.** Full-detail terrain chunks are built around the camera (a few per frame) and dropped when far away. The coarse level covers the whole map.
+- **Tests:** 12 new world tests. They cover flat plateaus, road grades and paving, network connectivity, buildings off the roads with colliders, pumps and car parks, the car catalogue, acceleration by class, FWD/RWD/AWD torque split, no off-road modes on road cars, tyre grip by surface, a two-minute traffic run (no NaN, lanes keep their gaps), and traffic stopping for a pedestrian and when hit. Existing tests were updated for the bigger map. The suite is 79 tests.
+
 ## 0.5.0: Phase 3 character engine
 
 - **Male and female characters, built from data.**

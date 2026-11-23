@@ -117,7 +117,9 @@ export class Character {
         this.pos.z = o.cz - nx * s + nz * c;
       }
     }
-    for (const b of T.boxes) {
+    const near = T.boxesNear(this.pos.x, this.pos.z), nb = near.length + T.dynamicBoxes.length;
+    for (let q = 0; q < nb; q++) {
+      const b = q < near.length ? T.boxes[near[q]] : T.dynamicBoxes[q - near.length];
       if (this.pos.y + 1.7 < b.cy - b.hy || this.pos.y > b.cy + b.hy - 0.3) continue;
       const c = Math.cos(b.yaw), s = Math.sin(b.yaw);
       const dx = this.pos.x - b.cx, dz = this.pos.z - b.cz;

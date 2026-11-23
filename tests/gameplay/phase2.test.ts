@@ -13,8 +13,8 @@ beforeAll(() => {
   t = new Terrain();
   pg = new Terrain();
   pg.heights.fill(20); pg.surface.fill(1); pg.mudDepth.fill(0);
-  pg.boulders.length = 0; pg.trees.length = 0; pg.boxes.length = 0;
-  (pg as unknown as { grid: Map<number, unknown> }).grid.clear();
+  pg.boulders.length = 0; pg.trees.length = 0; pg.boxes.length = 0; pg.reindexBoxes();
+  (pg as unknown as { grid: Map<number, unknown> }).grid.clear(); pg.reindexBoxes();
 });
 const DT = 1 / 240;
 const run = (v: Vehicle, secs: number, inp: Partial<VehicleInput>, each?: () => void) => {
@@ -137,7 +137,7 @@ describe('driving modes', () => {
   it('traction control intervenes in Normal on mud and stays off in Mud mode', () => {
     const mud = new Terrain();
     mud.heights.fill(20); mud.surface.fill(2); mud.mudDepth.fill(0.6);
-    mud.boulders.length = 0; mud.trees.length = 0; mud.boxes.length = 0;
+    mud.boulders.length = 0; mud.trees.length = 0; mud.boxes.length = 0; mud.reindexBoxes();
     (mud as unknown as { grid: Map<number, unknown> }).grid.clear();
     const spot: [number, number] = [0, -380];
     const tc = (mode: 'normal' | 'mud') => { const v = new Vehicle(RANGER_TX4, mud); v.reset(spot[0], spot[1], 0); v.setDrivingMode(mode); v.driveMode = '2H'; v.diffLock = false; run(v, 1, {}); let on = false; run(v, 3, { throttle: 1 }, () => { on ||= v.tcActive; }); return on; };
@@ -166,7 +166,7 @@ describe('collision damage', () => {
     const tc = new Terrain();
     tc.heights.fill(20); tc.surface.fill(1); tc.boulders.length = 0; tc.trees.length = 0; tc.boxes.length = 0;
     (tc as unknown as { grid: Map<number, unknown> }).grid.clear();
-    tc.boxes.push({ kind: 'wall', cx: 0, cy: 21.5, cz: 10, hx: 6, hy: 1.5, hz: 1, yaw: 0 });
+    tc.boxes.push({ kind: 'wall', cx: 0, cy: 21.5, cz: 10, hx: 6, hy: 1.5, hz: 1, yaw: 0 }); tc.reindexBoxes();
     const v = new Vehicle(RANGER_TX4, tc); v.reset(0, -36, 0); v.driveMode = '4H'; run(v, 1.5, {});
     const events: ImpactEvent[] = [];
     let hitKmh = 0;
@@ -192,7 +192,7 @@ describe('collision damage', () => {
     const tc = new Terrain();
     tc.heights.fill(20); tc.surface.fill(1); tc.boulders.length = 0; tc.trees.length = 0; tc.boxes.length = 0;
     (tc as unknown as { grid: Map<number, unknown> }).grid.clear();
-    tc.boxes.push({ kind: 'wall', cx: 0, cy: 22, cz: 10, hx: 5, hy: 2, hz: 0.15, yaw: 0 });
+    tc.boxes.push({ kind: 'wall', cx: 0, cy: 22, cz: 10, hx: 5, hy: 2, hz: 0.15, yaw: 0 }); tc.reindexBoxes();
     const v = new Vehicle(RANGER_TX4, tc); v.reset(0, -36, 0); v.driveMode = '4H'; run(v, 1.5, {});
     let hit = false, maxZ = -1e9;
     v.onImpact = () => { hit = true; };

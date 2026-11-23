@@ -54,9 +54,9 @@
       <p><b>W A S D</b> run · <b>Alt</b> hold to walk · <b>Shift</b> sprint<br><b>Space</b> jump · <b>C</b> crouch<br><b>E</b> interact: drive a vehicle, talk to people<br><b>1 – 5</b> pick a reply in a conversation</p></div>
     <div><h3>Driving</h3>
       <p><b>W / S</b> throttle / brake (hold S when stopped to reverse)<br><b>A / D</b> steer · <b>Space</b> handbrake<br>
-      <b>C</b> driving mode: Normal / Sport / Off-road / Rock crawl / Snow / Mud<br>
-      <b>G</b> transfer case 2H → 4H → 4L · <b>L</b> diff lock<br><b>T</b> auto / manual · <b>X / Z</b> shift up / down (manual)<br>
-      <b>F</b> hold at the camp fuel pump to refuel · <b>N</b> headlights<br><b>R</b> recover vehicle (upright) · <b>E</b> exit<br><b>K</b> use a repair kit (stopped) · <b>F</b> in the camp shed: workshop repair<br>Walk up to either camp vehicle and press <b>E</b> to drive it</p></div>
+      <b>C</b> driving mode: Normal / Sport / Off-road / Rock crawl / Snow / Mud (road cars: Normal / Sport / Snow)<br>
+      <b>G</b> transfer case 2H → 4H → 4L · <b>L</b> diff lock (off-roaders only)<br><b>T</b> auto / manual · <b>X / Z</b> shift up / down (manual)<br>
+      <b>F</b> hold at any fuel pump to refuel · <b>N</b> headlights<br><b>R</b> recover vehicle (upright) · <b>E</b> exit<br><b>K</b> use a repair kit (stopped) · <b>F</b> in the camp shed: workshop repair<br>Walk up to any of your vehicles and press <b>E</b> to drive it: off-roaders at camp, road cars in the town car parks (pause menu → Fast travel)</p></div>
     <div><h3>Camera &amp; game</h3>
       <p><b>Mouse</b> look (click to capture) · <b>Wheel</b> zoom<br><b>V</b> camera: chase / far / hood / first-person (driving)<br>chase / first-person / free-fly (on foot; free-fly: WASD, Q/E down/up)<br>
       <b>M</b> map · <b>H</b> this help · <b>P / Esc</b> pause · <b>F5</b> quick save<br>Gamepad: sticks, RT/LT, A, Y = enter/exit</p></div>
@@ -69,7 +69,10 @@
   <button id="btn-resume">Resume</button>
   <button id="btn-save">Save game</button>
   <button id="btn-recover">Recover vehicle here</button>
-  <button id="btn-camp">Return to base camp</button>
+  <button id="btn-camp">Tow vehicle home</button>
+  <div class="travel"><span>Fast travel</span>
+    <button id="btn-go-camp">Camp</button><button id="btn-go-city">Halden City</button><button id="btn-go-town">Millbrook</button><button id="btn-go-village">Ashby Hollow</button>
+  </div>
   <button id="btn-settings">Settings</button>
   <button id="btn-help">Controls</button>
   <button id="btn-quit">Quit to main menu</button>

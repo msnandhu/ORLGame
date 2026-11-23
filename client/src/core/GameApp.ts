@@ -5,7 +5,8 @@ import { Color3 } from '@babylonjs/core/Maths/math.color';
 import {
   Terrain, Vehicle, Character, VEHICLES, vehicleById, DRIVING_MODE_PROFILES, nextDrivingMode, repairFull, repairWithKit, overallDamage, WORLD_SEED, PHYSICS_HZ, Vec3, Quat,
   VehicleTransition, pickInteractable, Npc, CAMP_MECHANIC, DialogueSession, statureOf, decodeAppearance, DEFAULT_MALE,
-  type Settings, type PlayerTransform, type ImpactEvent, type Interactable, type CharacterAppearance, type DoorPose,
+  Traffic, isRoadCar, PELLA, CORVAN, HALCYON, STRIX_R2, VANTA_GT, SOLENNE_GT,
+  type Settings, type TrafficObstacle, type PlayerTransform, type ImpactEvent, type Interactable, type CharacterAppearance, type DoorPose,
 } from '@orl/shared';
 import { createEngine, type Backend } from '../engine/createEngine';
 import { AssetManager } from '../assets/AssetManager';
@@ -18,6 +19,9 @@ import { DamageFx } from '../rendering/DamageFx';
 import { TerrainRenderer } from '../world/TerrainRenderer';
 import { PropsRenderer } from '../world/PropsRenderer';
 import { Scenery } from '../world/Scenery';
+import { RoadRenderer } from '../world/RoadRenderer';
+import { BuildingRenderer } from '../world/BuildingRenderer';
+import { TrafficRenderer } from '../world/TrafficRenderer';
 import { GrassField } from '../world/GrassField';
 import { VehicleView } from '../vehicles/VehicleView';
 import { CharacterView } from '../characters/CharacterView';
@@ -39,6 +43,13 @@ const BAYS = [{ x: -4, z: 4, h: 0.4 }, { x: -10.5, z: 2.5, h: 0.4 }];
 /** The open-sided shed at camp doubles as the workshop. */
 const WORKSHOP = { x: -18, z: 11, r: 9 };
 const KITS_PER_TRIP = 2;
+/** Where each road car lives: the car park of a settlement (city: racing and luxury, town and village: everyday cars). */
+const HOME_LOT: Record<string, string> = { 'vanta-gt': 'halden', 'solenne-gt': 'halden', halcyon: 'halden', corvan: 'millbrook', 'strix-r2': 'millbrook', pella: 'ashby' };
+/** AI traffic mix: mostly everyday cars, the odd luxury saloon and sports car. */
+const TRAFFIC_MIX = [{ spec: PELLA, w: 5, n: 3 }, { spec: CORVAN, w: 5, n: 3 }, { spec: HALCYON, w: 2, n: 2 }, { spec: STRIX_R2, w: 1, n: 2 }, { spec: VANTA_GT, w: 0.6, n: 1 }, { spec: SOLENNE_GT, w: 0.6, n: 1 }];
+const TRAFFIC_CARS = 70;
+/** Parked vehicles further than this from the player sleep (no simulation) once they are at rest. */
+const SLEEP_RANGE = 140;
 const REF_STATURE = 1.75;
 /** on foot, in the middle of climbing in or out, or in the driver's seat */
 type SeatState = 'foot' | 'entering' | 'seated' | 'exiting';
@@ -55,6 +66,7 @@ export class GameApp {
   repairKits = KITS_PER_TRIP;
   vView!: VehicleView; cView!: CharacterView; rig!: CameraRig; env!: Environment;
   terrainR!: TerrainRenderer; props!: PropsRenderer; grass!: GrassField; scenery!: Scenery; particles!: WheelParticles;
+  roads!: RoadRenderer; buildings!: BuildingRenderer; traffic!: Traffic; trafficR!: TrafficRenderer;
   hud!: Hud; input!: Input; audio = new EngineAudio(); net = new NetClient();
   private remoteViews = new Map<string, { v: VehicleView; c: CharacterView; sim: Vehicle; ch: Character; vid: string; look: string }>();
   inVehicle = false; paused = false; started = false;
@@ -98,6 +110,13 @@ export class GameApp {
     const hk = assets.get<HavokModule | null>('Havok physics');
     if (hk) { this.physics = new HavokWorld(scene, hk); this.physics.buildStatic(this.terrain); VEHICLES.forEach((sp, i) => this.physics!.addProxy(`vehicle-${i}`, new Vector3(sp.halfExtents[0] * 2, sp.halfExtents[1] * 2 + 0.1, sp.halfExtents[2] * 2))); this.physics.addProxy('player', new Vector3(0.6, 1.8, 0.6)); }
     this.terrainR = new TerrainRenderer(scene, this.terrain, assets.get('Terrain textures'), assets.get('Terrain materials'));
+    onProgress(0.8, 'Paving roads and building towns');
+    await tick();
+    this.roads = new RoadRenderer(scene, this.terrain);
+    this.buildings = new BuildingRenderer(scene, this.terrain);
+    BuildingRenderer.lotPaving(scene, this.terrain);
+    this.traffic = new Traffic(this.terrain, TRAFFIC_MIX.map(m => m.spec), TRAFFIC_MIX.map(m => m.w), TRAFFIC_CARS, WORLD_SEED);
+    this.trafficR = new TrafficRenderer(scene, this.terrain, this.traffic, TRAFFIC_MIX.map(m => ({ spec: m.spec, n: m.n })));
     onProgress(0.85, 'Planting trees');
     await tick();
     this.props = new PropsRenderer(scene, this.terrain);
@@ -116,7 +135,7 @@ export class GameApp {
     this.npc.body.stature = statureOf(CAMP_MECHANIC.appearance) / REF_STATURE;
     this.npcView = new CharacterView(scene, CAMP_MECHANIC.appearance);
     this.particles = new WheelParticles(scene, this.vehicle);
-    for (const m of [...this.props.casters, ...this.scenery.casters, ...this.fleetViews.flatMap(v => v.meshes), ...this.cView.meshes, ...this.npcView.meshes]) this.env.addShadowCaster(m);
+    for (const m of [...this.props.casters, ...this.scenery.casters, ...this.fleetViews.flatMap(v => v.meshes), ...this.cView.meshes, ...this.npcView.meshes, ...this.buildings.meshes, ...this.trafficR.meshes]) this.env.addShadowCaster(m);
     this.cView.onRebuild = (added, removed) => { for (const m of removed) this.env.removeShadowCaster(m); for (const m of added) this.env.addShadowCaster(m); };
     this.applyGraphics();
     this.input = new Input(this.canvas);
@@ -137,7 +156,7 @@ export class GameApp {
   newGame(fromSave: boolean) {
     const s = fromSave ? SaveGame.read() : null;
     this.fleet.forEach((v, i) => {
-      const bay = BAYS[i % BAYS.length];
+      const bay = this.home(v);
       v.condition = { ...v.condition }; repairFull(v.condition); v.engineTemp = 85; v.overheated = false;
       v.fuel = v.spec.fuelCapacity; v.automatic = true; v.diffLock = false; v.driveMode = '4H'; v.drivingMode = 'normal';
       v.reset(bay.x, bay.z, bay.h);
@@ -160,22 +179,60 @@ export class GameApp {
     this.inVehicle = false; this.seat = 'foot'; this.rig.mode = 'chase';
     if (s?.inVehicle) this.enterVehicle();
     this.rig.yaw = this.player.heading + Math.PI;
+    this.terrainR.prime(new Vector3(this.player.pos.x, this.player.pos.y, this.player.pos.z));
+  }
+
+  /** Where a vehicle is parked at the start and where the tow truck takes it: camp bays or its settlement's car park. */
+  home(v: Vehicle): { x: number; z: number; h: number; where: string } {
+    const lot = HOME_LOT[v.spec.id];
+    if (lot) {
+      const spots = this.terrain.parking.filter(p => p.settlement === lot);
+      const k = this.fleet.filter(f => HOME_LOT[f.spec.id] === lot).indexOf(v);
+      const p = spots[Math.max(0, k) % spots.length], s = this.terrain.settlements.find(q => q.id === lot)!;
+      return { x: p.x, z: p.z, h: p.heading, where: s.name };
+    }
+    const offroad = this.fleet.filter(f => !HOME_LOT[f.spec.id]);
+    const bay = BAYS[Math.max(0, offroad.indexOf(v)) % BAYS.length];
+    return { ...bay, where: 'base camp' };
+  }
+
+  /** Offline fast travel: on foot, next to a settlement's car park (or at camp). */
+  travelTo(id: string): string {
+    if (this.net.status === 'online') return 'Fast travel is off in multiplayer';
+    this.cancelInteraction();
+    if (this.inVehicle) { this.inVehicle = false; this.seat = 'foot'; if (this.rig.mode === 'far' || this.rig.mode === 'hood') this.rig.mode = 'chase'; }
+    let x = SPAWN.px, z = SPAWN.pz, h = SPAWN.ph, name = 'base camp';
+    const s = this.terrain.settlements.find(q => q.id === id);
+    if (s) {
+      const spots = this.terrain.parking.filter(p => p.settlement === s.id);
+      const mx = spots.reduce((a, p) => a + p.x, 0) / spots.length, mz = spots[0].z;
+      x = mx; z = mz - 6; h = 0; name = s.name; // stand in front of the bays, facing the cars
+    }
+    this.player.place(x, z); this.player.heading = h; this.rig.yaw = h + Math.PI;
+    this.terrainR.prime(new Vector3(x, this.terrain.heightAt(x, z), z));
+    return `Travelled to ${name}`;
   }
 
   private setActive(v: Vehicle) {
     const i = this.fleet.indexOf(v);
     this.vehicle = v; this.vView = this.fleetViews[i]; this.particles.v = v;
+    // eye about 0.7 m above the hip point; the bonnet camera sits just above the nose
+    const [sx, sy, sz] = v.spec.look.seat, low = isRoadCar(v.spec);
+    this.rig.seatEye.set(sx, sy + (low ? 0.66 : 0.54), sz + (low ? 0.02 : 0.03));
+    this.rig.hoodEye.set(0, low ? sy + 0.6 : 0.75, low ? v.spec.halfExtents[2] * 0.55 : 1.6);
   }
 
-  /** Tow the current vehicle back to its camp bay (keeps fuel and damage; the workshop is there). */
-  returnToCamp() {
-    const wasIn = this.inVehicle, v = this.vehicle, bay = BAYS[this.fleet.indexOf(v) % BAYS.length];
+  /** Tow the current vehicle back to its home bay or car park (keeps fuel and damage). Returns a message. */
+  returnToCamp(): string {
+    const wasIn = this.inVehicle, v = this.vehicle, bay = this.home(v);
     v.reset(bay.x, bay.z, bay.h);
     for (let i = 0; i < 240; i++) v.step(1 / PHYSICS_HZ, { throttle: 0, brake: 0, steer: 0, handbrake: 1 });
     this.cancelInteraction();
     this.player.place(bay.x + 2.2, bay.z - 1);
     this.inVehicle = false; this.seat = 'foot';
     if (wasIn) this.enterVehicle();
+    this.terrainR.prime(new Vector3(bay.x, this.terrain.heightAt(bay.x, bay.z), bay.z));
+    return bay.where === 'base camp' ? 'Towed back to base camp: drive into the shed and press F for the workshop' : `Towed to the ${bay.where} car park`;
   }
 
   private onImpact(v: Vehicle, view: VehicleView, fx: DamageFx, e: ImpactEvent) {
@@ -230,7 +287,7 @@ export class GameApp {
     this.rig.yaw = v.body.quat.yaw() + Math.PI;
     if (this.rig.mode === 'free') this.rig.mode = 'chase';
     if (!v.engineOn && v.canStart()) v.engineOn = true;
-    this.hud.toast(`${v.spec.name} · ${DRIVING_MODE_PROFILES[v.drivingMode].label} · ${v.driveMode}`);
+    this.hud.toast(`${v.spec.name} · ${DRIVING_MODE_PROFILES[v.drivingMode].label} · ${v.partTime ? v.driveMode : v.spec.drivetrain.toUpperCase()}`);
   }
   /** Walk to the driver's door and climb in (animated). */
   beginEnter(v: Vehicle) {
@@ -340,24 +397,25 @@ export class GameApp {
       this.acc += dt;
       let steps = 0;
       if (this.inVehicle) {
-        if (inp.wasPressed('KeyG')) { v.toggleDriveMode(); this.hud.toast(`Drive mode ${v.driveMode}${v.driveMode === '4L' ? ' (low range)' : ''}`); }
-        if (inp.wasPressed('KeyL')) { v.diffLock = !v.diffLock; this.hud.toast(v.diffLock ? 'Diff lock ON' : 'Diff lock OFF'); }
+        if ((inp.wasPressed('KeyG') || inp.wasPressed('KeyL')) && !v.partTime) this.hud.toast(`${v.spec.name}: permanent ${v.spec.drivetrain.toUpperCase()}, no transfer case or lockers`);
+        else if (inp.wasPressed('KeyG')) { v.toggleDriveMode(); this.hud.toast(`Drive mode ${v.driveMode}${v.driveMode === '4L' ? ' (low range)' : ''}`); }
+        else if (inp.wasPressed('KeyL')) { v.diffLock = !v.diffLock; this.hud.toast(v.diffLock ? 'Diff lock ON' : 'Diff lock OFF'); }
         if (inp.wasPressed('KeyT')) { v.automatic = !v.automatic; if (v.automatic && v.gear === 0) v.gear = 1; this.hud.toast(v.automatic ? 'Automatic transmission' : 'Manual transmission (X/Z to shift)'); }
         if (!v.automatic && (inp.wasPressed('KeyX') || inp.padPressed.has(5))) v.shiftUp();
         if (!v.automatic && (inp.wasPressed('KeyZ') || inp.padPressed.has(4))) v.shiftDown();
         if (inp.wasPressed('KeyN')) this.vView.setHeadlights(!this.vView.headlightsOn);
         if (inp.wasPressed('KeyR')) { v.recover(); this.hud.toast('Vehicle recovered'); }
         if (inp.wasPressed('KeyC') || inp.padPressed.has(2)) {
-          v.setDrivingMode(nextDrivingMode(v.drivingMode));
+          v.setDrivingMode(nextDrivingMode(v.drivingMode, v.spec.modes));
           const m = DRIVING_MODE_PROFILES[v.drivingMode];
-          this.hud.toast(`${m.label} mode · ${v.driveMode}${v.diffLock ? ' · lockers' : ''}: ${m.description}`);
+          this.hud.toast(`${m.label} mode${v.partTime ? ` · ${v.driveMode}${v.diffLock ? ' · lockers' : ''}` : ''}: ${m.description}`);
         }
         if (inp.wasPressed('KeyK')) {
           if (this.repairKits <= 0) this.hud.toast('No repair kits left: the workshop at camp restocks them');
           else if (v.speedKmh > 2) this.hud.toast('Stop to use a repair kit');
           else { repairWithKit(v.condition); this.repairKits--; if (!v.engineOn && v.canStart()) v.engineOn = true; this.hud.toast(`Field repair done (${this.repairKits} kit${this.repairKits === 1 ? '' : 's'} left)`); }
         }
-        const nearPump = Math.hypot(v.body.pos.x - T.fuelPump.x, v.body.pos.z - T.fuelPump.z) < 6;
+        const nearPump = T.fuelPumps.some(p => Math.hypot(v.body.pos.x - p.x, v.body.pos.z - p.z) < 6);
         const atWorkshop = Math.hypot(v.body.pos.x - WORKSHOP.x, v.body.pos.z - WORKSHOP.z) < WORKSHOP.r;
         if (nearPump && inp.isDown('KeyF') && v.speedKmh < 3) { v.fuel = Math.min(v.spec.fuelCapacity, v.fuel + 12 * dt); this.refuel = 0.3; if (!v.engineOn && v.canStart()) v.engineOn = true; }
         if (atWorkshop && inp.wasPressed('KeyF') && v.speedKmh < 3) {
@@ -369,8 +427,8 @@ export class GameApp {
         const dmg = v.condition;
         this.hud.prompt(nearPump ? (this.refuel > 0 ? `Refuelling… ${Math.round(v.fuel)} L` : 'Hold F to refuel') :
           atWorkshop && (dmg.engine + dmg.cooling + dmg.tyres.reduce((a, b) => a + b, 0) + dmg.suspension.reduce((a, b) => a + b, 0) + Object.values(dmg.body).reduce((a, b) => a + b, 0)) > 0 ? 'Workshop: press F to repair' :
-          v.flooded ? 'Engine flooded: press R to recover' : v.fuel <= 0 ? 'Out of fuel: pause menu → Return to base camp' :
-          dmg.engine >= 1 ? 'Engine destroyed: pause menu → Return to base camp for the workshop' :
+          v.flooded ? 'Engine flooded: press R to recover' : v.fuel <= 0 ? 'Out of fuel: pause menu → Tow vehicle home' :
+          dmg.engine >= 1 ? 'Engine destroyed: pause menu → Tow vehicle home' :
           v.overheated ? `Engine overheated (${Math.round(v.engineTemp)} °C): let it cool, then it restarts${this.repairKits > 0 && dmg.cooling > 0.3 ? ' · K: patch the radiator' : ''}` :
           v.upsideDownTimer > 1.5 ? 'Vehicle stuck: press R to recover' : null);
         if (enter && this.seat === 'seated') this.exitVehicle();
@@ -413,6 +471,7 @@ export class GameApp {
         }
       }
       this.npc.update(dt, this.obstacles());
+      this.stepTraffic(dt);
       if (steps >= 14) this.acc = 0;
       // kinematic proxies so Havok props react to the custom-simulated vehicle and player
       this.fleet.forEach((f, i) => this.physics?.moveProxy(`vehicle-${i}`, f.body.pos.x, f.body.pos.y + f.spec.hullOffsetY, f.body.pos.z, f.body.quat, dt));
@@ -441,7 +500,8 @@ export class GameApp {
       this.rig.portrait(this.player.pos, this.player.heading + this.creatorSpin, statureOf(this.appearance));
     } else this.rig.update(dt, focus, this.inVehicle ? v.body.quat.yaw() : this.player.heading, this.inVehicle, Math.abs(v.forwardSpeed()), this.inVehicle ? v.body.quat : null, freeMove);
     const cam = this.rig.camera.position;
-    this.terrainR.update(cam); this.props.update(cam); this.grass.update(cam);
+    this.terrainR.update(cam); this.props.update(cam); this.grass.update(cam); this.roads.update(cam);
+    this.trafficR.update(cam, dt);
     this.env.follow(new Vector3(focus.x, focus.y, focus.z));
     if (this.started) {
       this.hud.kits = this.repairKits;
@@ -486,7 +546,28 @@ export class GameApp {
   /** Parked vehicles keep simulating (handbrake on) so they settle, roll on slopes and can be pushed. */
   private stepParked(steps: number, driven: Vehicle | null) {
     const fixed = 1 / PHYSICS_HZ;
-    for (const f of this.fleet) if (f !== driven) for (let k = 0; k < steps; k++) f.step(fixed, { throttle: 0, brake: 0, steer: 0, handbrake: 1 });
+    const p = driven ? driven.body.pos : this.player.pos;
+    for (const f of this.fleet) {
+      if (f === driven) continue;
+      // far away and at rest: asleep until someone comes near (traffic or the player can wake it by pushing)
+      if (Math.hypot(f.body.pos.x - p.x, f.body.pos.z - p.z) > SLEEP_RANGE && f.body.vel.lengthSq() < 0.01 && f.body.angVel.lengthSq() < 0.01) continue;
+      for (let k = 0; k < steps; k++) f.step(fixed, { throttle: 0, brake: 0, steer: 0, handbrake: 1 });
+    }
+  }
+
+  /** AI traffic: yields to the player and the fleet, collides with them as moving boxes, and stops when hit. */
+  private stepTraffic(dt: number) {
+    const obs: TrafficObstacle[] = this.fleet.map(f => ({ x: f.body.pos.x, z: f.body.pos.z, r: f.spec.halfExtents[0] + 0.4 }));
+    if (!this.inVehicle) obs.push({ x: this.player.pos.x, z: this.player.pos.z, r: 0.5 });
+    if (this.npc) obs.push({ x: this.npc.body.pos.x, z: this.npc.body.pos.z, r: 0.5 });
+    this.traffic.update(dt, obs);
+    // only cars near the player take part in collisions
+    const v = this.vehicle, c = this.inVehicle ? v.body.pos : this.player.pos, near = this.traffic.cars.filter(t => Math.abs(t.x - c.x) < 60 && Math.abs(t.z - c.z) < 60);
+    this.terrain.dynamicBoxes = near.map(t => ({ kind: 'traffic', cx: t.x, cy: t.y + t.spec.hullOffsetY, cz: t.z, hx: t.spec.halfExtents[0], hy: t.spec.halfExtents[1], hz: t.spec.halfExtents[2], yaw: t.yaw }));
+    for (const t of near) {
+      const d = Math.hypot(t.x - v.body.pos.x, t.z - v.body.pos.z);
+      if (d < t.spec.halfExtents[2] + v.spec.halfExtents[2] + 0.3 && v.body.vel.length() > 1.5 && t.shaken <= 0) this.traffic.bump(t);
+    }
   }
 
   private localTransform(): PlayerTransform {

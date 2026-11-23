@@ -16,7 +16,7 @@ export class Hud {
   private compassStrip = $('compass-strip');
 
   constructor(private terrain: Terrain) {
-    this.mapImg = this.renderMap(512);
+    this.mapImg = this.renderMap(768);
     const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
     let html = '';
     for (let rep = 0; rep < 3; rep++) for (let i = 0; i < 24; i++) {
@@ -32,7 +32,7 @@ export class Hud {
     const c = document.createElement('canvas'); c.width = c.height = px;
     const ctx = c.getContext('2d')!;
     const img = ctx.createImageData(px, px);
-    const col: Record<number, number[]> = { [Surface.Grass]: [70, 96, 44], [Surface.Dirt]: [150, 118, 80], [Surface.Mud]: [84, 62, 40], [Surface.Rock]: [128, 124, 118], [Surface.Gravel]: [150, 144, 130] };
+    const col: Record<number, number[]> = { [Surface.Grass]: [70, 96, 44], [Surface.Dirt]: [150, 118, 80], [Surface.Mud]: [84, 62, 40], [Surface.Rock]: [128, 124, 118], [Surface.Gravel]: [150, 144, 130], [Surface.Asphalt]: [64, 64, 66] };
     for (let y = 0; y < px; y++) for (let x = 0; x < px; x++) {
       const wx = (x / px) * t.size - t.half, wz = (y / px) * t.size - t.half;
       const h = t.heightAt(wx, wz);
@@ -47,6 +47,18 @@ export class Hud {
     ctx.putImageData(img, 0, 0);
     ctx.strokeStyle = 'rgba(230,200,150,0.9)'; ctx.lineWidth = 2;
     for (const tr of t.trails) { ctx.beginPath(); tr.forEach(([x, z], k) => { const sx = (x + t.half) / t.size * px, sy = (z + t.half) / t.size * px; if (k) ctx.lineTo(sx, sy); else ctx.moveTo(sx, sy); }); ctx.stroke(); }
+    // roads (widest first so junctions read cleanly), buildings
+    const m = px / t.size, P = (x: number, z: number) => [(x + t.half) * m, (z + t.half) * m] as const;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const pass of [0, 1]) for (const r of [...t.roads].sort((a, b) => b.cls.width - a.cls.width)) {
+      ctx.strokeStyle = pass ? (r.kind === 'highway' ? '#c9a24a' : r.kind === 'road' ? '#bdb6a6' : '#8e8a82') : 'rgba(20,20,20,0.85)';
+      ctx.lineWidth = Math.max(pass ? 1.6 : 3, (r.cls.width + (r.kind === 'street' ? 5 : 0)) * m + (pass ? 0 : 1.5));
+      ctx.beginPath(); r.pts.forEach(([x, z], k) => { const [sx, sy] = P(x, z); if (k) ctx.lineTo(sx, sy); else ctx.moveTo(sx, sy); });
+      if (r.closed) ctx.closePath();
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#d8cfc0'; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 0.6;
+    for (const b of t.buildings) { const [x, y] = P(b.x - b.w / 2, b.z - b.d / 2); ctx.fillRect(x, y, b.w * m, b.d * m); ctx.strokeRect(x, y, b.w * m, b.d * m); }
     return c;
   }
 
@@ -81,8 +93,8 @@ export class Hud {
     ctx.drawImage(this.mapImg, 0, 0);
     // fuel pump & vehicle markers
     const pt = (x: number, z: number) => [(x + t.half) * scale, (z + t.half) * scale];
-    const [fx, fz] = pt(t.fuelPump.x, t.fuelPump.z);
-    ctx.fillStyle = '#ff4a3a'; ctx.fillRect(fx - 2, fz - 2, 4, 4);
+    ctx.fillStyle = '#ff4a3a';
+    for (const p of t.fuelPumps) { const [fx, fz] = pt(p.x, p.z); ctx.fillRect(fx - 2, fz - 2, 4, 4); }
     if (!inVeh) { const [a, b] = pt(vx, vz); ctx.fillStyle = '#fff'; ctx.fillRect(a - 2.5, b - 2.5, 5, 5); }
     ctx.restore();
     // player arrow (always points up = view direction)
@@ -96,7 +108,13 @@ export class Hud {
     const ctx = this.big, t = this.terrain, W = 720;
     ctx.drawImage(this.mapImg, 0, 0, W, W);
     const pt = (x: number, z: number) => [(x + t.half) / t.size * W, (z + t.half) / t.size * W];
-    const [fx, fz] = pt(t.fuelPump.x, t.fuelPump.z); ctx.fillStyle = '#ff4a3a'; ctx.fillRect(fx - 4, fz - 4, 8, 8);
+    ctx.fillStyle = '#ff4a3a';
+    for (const p of t.fuelPumps) { const [fx, fz] = pt(p.x, p.z); ctx.fillRect(fx - 3, fz - 3, 6, 6); }
+    ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+    for (const s of t.settlements) { const [sx, sz] = pt(s.cx, s.cz - s.hz); ctx.strokeText(s.name, sx, sz - 8); ctx.fillStyle = '#fff'; ctx.fillText(s.name, sx, sz - 8); }
+    const hw = t.roads.find(r => r.kind === 'highway');
+    if (hw) { const q = hw.pts[Math.floor(hw.pts.length * 0.3)], [hx, hz] = pt(q[0], q[1]); ctx.font = '12px sans-serif'; ctx.strokeText(hw.name, hx, hz + 16); ctx.fillStyle = '#f0d58a'; ctx.fillText(hw.name, hx, hz + 16); }
+    ctx.textAlign = 'left'; ctx.lineWidth = 1;
     const [cx, cz] = pt(0, 0); ctx.strokeStyle = '#fff'; ctx.strokeRect(cx - 14, cz - 14, 28, 28); ctx.fillStyle = '#fff'; ctx.font = '13px sans-serif'; ctx.fillText('Base camp', cx + 18, cz + 4);
     const [rx, rz] = pt(190, -60); ctx.fillText('Rock-crawl ridge', rx - 40, rz - 75);
     const [a, b] = pt(vx, vz); ctx.fillStyle = '#fff'; ctx.fillRect(a - 4, b - 4, 8, 8);
@@ -124,7 +142,7 @@ export class Hud {
     $('speed-val').textContent = String(Math.round(v.speedKmh));
     $('gear').textContent = !v.engineOn ? '—' : v.gear < 0 ? 'R' : v.gear === 0 ? 'N' : String(v.gear);
     $('trans').textContent = v.automatic ? 'AUTO' : 'MANUAL';
-    $('ind-drive').textContent = v.driveMode;
+    $('ind-drive').textContent = v.partTime ? v.driveMode : v.spec.drivetrain.toUpperCase();
     $('ind-lock').classList.toggle('on', v.diffLock);
     $('ind-hb').classList.toggle('on', v.lastInput.handbrake > 0.5);
     $('ind-flood').classList.toggle('on', v.flooded);

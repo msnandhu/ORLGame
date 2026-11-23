@@ -15,6 +15,8 @@ function findFlat(): [number, number] {
   for (let j = 20; j < terrain.n - 20; j += 3) for (let i = 20; i < terrain.n - 20; i += 3) {
     const x = i * terrain.cell - terrain.half, z = j * terrain.cell - terrain.half; let ok = true;
     for (let d = -20; d <= 30 && ok; d += 2) { const s = terrain.surfaceAt(x, z + d); if (s === 2 || s === 3 || terrain.normalAt(x, z + d)[1] < 0.985 || terrain.heightAt(x, z + d) < terrain.waterLevel + 0.3) ok = false; }
+    // clear of trees, boulders and buildings along the run
+    if (ok && (terrain.trees.some(t => Math.abs(t.x - x) < 5 && t.z > z - 30 && t.z < z + 40) || terrain.boulders.some(b => Math.abs(b.x - x) < 6 && b.z > z - 30 && b.z < z + 40) || terrain.inSettlement(x, z, 20))) ok = false;
     if (ok) return [x, z];
   }
   throw new Error('no flat strip');
@@ -100,8 +102,13 @@ describe('vehicle physics', () => {
         if (terrain.surface[k] !== s) continue;
         const x = i * terrain.cell - terrain.half, z = j * terrain.cell - terrain.half;
         let ok = true;
-        for (let d = -12; d <= 12 && ok; d += 2) { if (terrain.surfaceAt(x, z + d) !== s || terrain.normalAt(x, z + d)[1] < 0.97 || terrain.heightAt(x, z + d) < terrain.waterLevel + 0.3) ok = false; }
-        if (ok) return [x, z];
+        for (let d = -12; d <= 12 && ok; d += 2) { if (terrain.surfaceAt(x, z + d) !== s || terrain.heightAt(x, z + d) < terrain.waterLevel + 0.3) ok = false; }
+        // level along the whole run, so neither side gets a downhill advantage
+        if (ok && Math.abs(terrain.heightAt(x, z + 25) - terrain.heightAt(x, z - 12)) > 0.8) ok = false;
+        for (let d = -12; d <= 25 && ok; d += 2) if (terrain.normalAt(x, z + d)[1] < 0.97) ok = false;
+        // clear of trees, boulders and buildings along the run
+    if (ok && (terrain.trees.some(t => Math.abs(t.x - x) < 5 && t.z > z - 30 && t.z < z + 40) || terrain.boulders.some(b => Math.abs(b.x - x) < 6 && b.z > z - 30 && b.z < z + 40) || terrain.inSettlement(x, z, 20))) ok = false;
+    if (ok) return [x, z];
       }
       return null;
     };

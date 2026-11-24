@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.1: Better body structure for the two leads
+
+- **Arms hang naturally.** The idle and talk poses had the arms turned inward, so the hands met in front of the hips. The arms now hang at the sides with a slight bend, and jumping and climbing spread them outward as intended. The feet stand a little apart.
+- **Shoulders and neck.** Sloped shoulders (trapezius) instead of a flat, square line, a rounder deltoid, lower shoulder joints, and a lower neckline with a slimmer bandana and collar, so the neck shows. The heads are slightly larger and the necks thicker, closer to the concept proportions.
+- **Torso.** A stronger V taper for the male lead, and a narrower waist with fuller hips for the female lead.
+- **Arms and legs.** Biceps, elbow and forearm shape; knee and calf shape under the trousers, with cloth bunching behind the knee and stacking above the boots. Thinner thigh straps.
+- **Female hair.** More volume on top and at the sides, combed strands and a side parting, locks framing the face, and a fuller ponytail.
+- **Pack straps** now lie flat over the shoulder instead of standing up like horns.
+- Same draw calls and almost the same vertex counts as 0.11.0.
+
 ## 0.11.0: New player characters
 
 - **Two new lead characters built from the concept sheets.** The male lead (180 cm) has curly dark hair, a short beard, aviators, a red bandana, an open brown trail jacket with red piping and mountain patches over a dark tee, dark cargo pants with a thigh holster and pouches, fingerless gloves, a watch, laced boots and a tan pack with a bedroll, radio and water bottle. The female lead (168 cm) has a dark ponytail with a red tie, aviators, a red bandana, a red leather cropped jacket over a crop top, olive cargo pants with tan thigh pouches and straps, fingerless gloves, boots with red laces and a tan pack with a sleeping mat. They are the creator's male and female defaults. A saved character that was still the old default switches to the new lead; customised characters are kept.

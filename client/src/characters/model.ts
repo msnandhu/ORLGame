@@ -19,7 +19,7 @@ import { EYE_UV, PLAIN_UV } from './textures';
 // ---------------- rig (bind pose) ----------------
 export const BONES = ['hips', 'spine', 'neck', 'head', 'armR', 'elbowR', 'armL', 'elbowL', 'thighR', 'kneeR', 'ankleR', 'thighL', 'kneeL', 'ankleL', 'tail0', 'tail1', 'tail2'] as const;
 export const B = Object.fromEntries(BONES.map((n, i) => [n, i])) as Record<typeof BONES[number], number>;
-export const HIPS_BIND = 0.95, SPINE_UP = 0.06, NECK_UP = 0.52, HEAD_UP = 0.13, SHOULDER_UP = 0.44, UPPER_ARM = 0.29, THIGH = 0.42, SHIN = 0.42, FOOT_Y = 0.07;
+export const HIPS_BIND = 0.95, SPINE_UP = 0.06, NECK_UP = 0.52, HEAD_UP = 0.13, SHOULDER_UP = 0.4, UPPER_ARM = 0.29, THIGH = 0.42, SHIN = 0.42, FOOT_Y = 0.07;
 export const TAIL_SEG = 0.12;
 
 export interface RigLayout {
@@ -33,7 +33,7 @@ export interface RigLayout {
 
 export function rigLayout(a: CharacterAppearance): RigLayout {
   const female = a.body === 'female', W = 0.95 + a.build * 0.16;
-  const shoulderX = (female ? 0.165 : 0.186) * (0.95 + a.build * 0.1), hipX = (female ? 0.094 : 0.092) * W;
+  const shoulderX = (female ? 0.162 : 0.18) * (0.95 + a.build * 0.1), hipX = (female ? 0.094 : 0.092) * W;
   const local: RigLayout['local'] = {
     hips: [0, HIPS_BIND, 0], spine: [0, SPINE_UP, 0], neck: [0, NECK_UP, 0], head: [0, HEAD_UP, 0],
     armR: [-shoulderX, SHOULDER_UP, 0], elbowR: [0, -UPPER_ARM, 0], armL: [shoulderX, SHOULDER_UP, 0], elbowL: [0, -UPPER_ARM, 0],
@@ -94,17 +94,18 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
 
   // ---------- torso surface ----------
   // y, rx, rzFront, rzBack, zOffset, superellipse power
+  // shoulders slope from the neck down to the arm sockets (trapezius); athletic V taper (male), hourglass (female)
   const TM = [
-    [0.84, 0.160, 0.094, 0.108, -0.006, 2.3], [0.90, 0.176, 0.100, 0.120, -0.006, 2.3], [0.96, 0.170, 0.098, 0.112, -0.002, 2.4],
-    [1.03, 0.150, 0.097, 0.098, 0.004, 2.5], [1.12, 0.150, 0.102, 0.096, 0.006, 2.5], [1.22, 0.158, 0.11, 0.098, 0.006, 2.6],
-    [1.32, 0.165, 0.118, 0.104, 0.002, 2.7], [1.40, 0.172, 0.108, 0.104, -0.004, 2.8], [1.46, 0.158, 0.085, 0.09, -0.01, 2.6],
-    [1.50, 0.11, 0.07, 0.074, -0.012, 2.3], [1.545, 0.06, 0.052, 0.055, -0.01, 2],
+    [0.84, 0.158, 0.094, 0.108, -0.006, 2.3], [0.90, 0.172, 0.100, 0.120, -0.006, 2.3], [0.96, 0.164, 0.098, 0.112, -0.002, 2.35],
+    [1.03, 0.143, 0.095, 0.098, 0.004, 2.35], [1.12, 0.146, 0.100, 0.096, 0.006, 2.4], [1.22, 0.158, 0.110, 0.098, 0.006, 2.45],
+    [1.30, 0.168, 0.118, 0.104, 0.002, 2.5], [1.37, 0.173, 0.112, 0.104, -0.004, 2.5], [1.42, 0.176, 0.096, 0.098, -0.008, 2.45],
+    [1.465, 0.142, 0.068, 0.088, -0.016, 2.3], [1.505, 0.084, 0.05, 0.07, -0.014, 2.1], [1.545, 0.058, 0.046, 0.055, -0.01, 2],
   ];
   const TF = [
-    [0.84, 0.150, 0.088, 0.112, -0.008, 2.3], [0.90, 0.170, 0.094, 0.126, -0.008, 2.3], [0.96, 0.158, 0.09, 0.112, -0.004, 2.4],
-    [1.04, 0.128, 0.082, 0.088, 0, 2.3], [1.12, 0.128, 0.085, 0.087, 0.002, 2.3], [1.21, 0.136, 0.09, 0.09, 0.004, 2.4],
-    [1.30, 0.146, 0.094, 0.094, 0.004, 2.5], [1.39, 0.155, 0.088, 0.092, -0.002, 2.6], [1.45, 0.142, 0.074, 0.08, -0.008, 2.5],
-    [1.50, 0.098, 0.062, 0.066, -0.01, 2.3], [1.545, 0.052, 0.046, 0.05, -0.01, 2],
+    [0.84, 0.152, 0.090, 0.114, -0.008, 2.3], [0.90, 0.176, 0.096, 0.130, -0.008, 2.3], [0.96, 0.164, 0.090, 0.114, -0.004, 2.3],
+    [1.04, 0.124, 0.080, 0.086, 0, 2.2], [1.10, 0.116, 0.080, 0.084, 0.002, 2.2], [1.18, 0.124, 0.086, 0.087, 0.004, 2.3],
+    [1.27, 0.140, 0.092, 0.092, 0.004, 2.4], [1.35, 0.150, 0.090, 0.092, -0.002, 2.45], [1.41, 0.152, 0.078, 0.084, -0.008, 2.4],
+    [1.455, 0.122, 0.06, 0.074, -0.013, 2.2], [1.50, 0.076, 0.046, 0.062, -0.012, 2.1], [1.545, 0.050, 0.042, 0.050, -0.01, 2],
   ];
   const T = female ? TF : TM;
   const g2 = (x: number, y: number, cx: number, cy: number, sx: number, sy: number) => Math.exp(-(((x - cx) / sx) ** 2) - (((y - cy) / sy) ** 2));
@@ -180,7 +181,7 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
   }
 
   // ---------- neck ----------
-  const H = P.head, neckR = female ? 0.047 : 0.057;
+  const H = P.head, neckR = female ? 0.05 : 0.062;
   {
     const rows: V3[][] = [], n = bd.n(16, 6);
     for (let i = 0; i <= 6; i++) {
@@ -194,10 +195,9 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
   }
 
   // ---------- head ----------
-  const fs = female ? 0.94 : 1;
   const shapes: Record<string, [number, number, number, number]> = { oval: [0.074, 0.114, 0.097, 0.26], square: [0.078, 0.112, 0.098, 0.16], round: [0.08, 0.108, 0.098, 0.2], long: [0.071, 0.12, 0.096, 0.24] };
   const [ha0, hb0, hcd, taper0] = shapes[a.face];
-  const ha = ha0 * fs, hb = hb0 * fs, hc = hcd * fs, taper = taper0 + (female ? 0.08 : 0);
+  const ha = ha0 * (female ? 1.0 : 1.04), hb = hb0 * (female ? 0.95 : 1.04), hc = hcd * (female ? 0.97 : 1.04), taper = taper0 + (female ? 0.08 : 0);
   const C: V3 = [0, -0.02, 0.004];
   const features = (x: number, y: number) => {
     const ax = Math.abs(x);
@@ -332,7 +332,12 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
     case 'bald': break;
     default: {
       // long, ponytail, bun: sleek cap pulled back
-      scalpShell('hair', (lam, th, t) => hairT(th, ((a.hair === 'long' ? 0.014 : 0.009) + 0.008 * g2(lam, t, 0.25, 0.75, 0.6, 0.25)) * (1 - smooth(0.82, 1, t) * 0.85) + 0.002), lam => hairEdge(lam) + (a.hair === 'long' ? 0.12 * smooth(1.6, 2.4, Math.abs(lam)) : 0), strands);
+      scalpShell('hair', (lam, th, t) => {
+        const L = Math.abs(lam);
+        const vol = (a.hair === 'long' ? 0.017 : 0.013) + 0.009 * g2(L, th, 1.25, 1.2, 0.45, 0.45) + 0.008 * g2(L, th, 0, 0.55, 0.7, 0.4);
+        const comb = 0.0022 * Math.abs(Math.sin(lam * 21 + th * 2.5)) - 0.004 * g2(lam, t, 0.28, 0.2, 0.05, 0.35);
+        return hairT(th, (vol + comb) * (1 - smooth(0.8, 1, t) * 0.82) + 0.002);
+      }, lam => hairEdge(lam) + (a.hair === 'long' ? 0.12 * smooth(1.6, 2.4, Math.abs(lam)) : 0), strands);
       if (a.hair === 'long' && !hatEdge) {
         // back curtain down to the shoulders
         const rows: V3[][] = [], n = bd.n(10, 4), m = bd.n(22, 8);
@@ -373,13 +378,14 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
           fr.forEach(([p, , n, b], i) => { const t = i / (fr.length - 1), [ox, oy] = offset(t); rows.push(ring(add(add(p, scl(n, ox)), scl(b, oy)), n, b, segs, { xp: radius(t), yp: radius(t) * 0.85 }, ang => 1 + 0.12 * Math.sin(ang * 4 + t * 9))); });
           bd.grid('hair', rows, { closed: true, weights: tailW, color: strands, capEnd: true });
         };
-        lock(t => 0.016 + 0.02 * Math.sin(Math.min(1, t * 2.2) * Math.PI * 0.7) * (1 - t) + 0.004 * (1 - t), () => [0, 0], bd.n(14, 6));
-        if (!lite) for (let k = 0; k < 5; k++) lock(t => (0.011 - 0.007 * t) * (k % 2 ? 0.9 : 1.1), t => [Math.cos(k * 1.26 + t * 2.5) * (0.022 * (1 - t) + 0.006), Math.sin(k * 1.26 + t * 2.5) * (0.02 * (1 - t) + 0.004)], 6);
+        lock(t => 0.018 + 0.026 * Math.sin(Math.min(1, t * 2.0) * Math.PI * 0.7) * (1 - t * 0.8) + 0.005 * (1 - t), () => [0, 0], bd.n(16, 6));
+        if (!lite) for (let k = 0; k < 8; k++) lock(t => (0.012 - 0.008 * t) * (k % 2 ? 0.85 : 1.1), t => [Math.cos(k * 0.785 + t * 3.2) * (0.026 * (1 - t * 0.7) + 0.006), Math.sin(k * 0.785 + t * 3.2) * (0.024 * (1 - t * 0.7) + 0.005)], 6);
         // strands framing the face
-        if (!lite) for (const sx of [-1, 1]) {
-          const top = headPt(sx * 1.05, 1.05, false), path2 = spline([add(top, [0, 0, 0.004]), add(headPt(sx * 1.2, 1.45, false), [sx * 0.008, 0, 0.006]), add(headPt(sx * 1.25, 1.85, false), [sx * 0.012, -0.01, 0.0])], 10);
-          const rows: V3[][] = [];
-          frames(path2, [0, 0, 1]).forEach(([p, , n, b], i) => { const t = i / 9; rows.push(ring(p, n, b, 6, { xp: 0.006 * (1 - t * 0.6), yp: 0.003 })); });
+        if (!lite) for (const sx of [-1, 1]) for (let k = 0; k < 1; k++) {
+          const l0 = sx * 0.8, o = 0.01;
+          const pts = [0.62, 1.0, 1.35, 1.7, 2.02].map((th, i) => add(headPt(l0 + sx * (0.15 + i * 0.07), th + k * 0.06, false), [sx * (o + 0.006 * Math.sin(i * 1.9 + k)), -0.004 * i, 0.004 * Math.cos(i * 2.1 + k)]));
+          const path2 = spline(pts, 14), rows: V3[][] = [];
+          frames(path2, [0, 0, 1]).forEach(([p, , n, b], i) => { const t = i / 13; rows.push(ring(p, n, b, 6, { xp: 0.016 * (1 - t * 0.6), yp: 0.0045 }, ang => 1 + 0.15 * Math.sin(ang * 3 + t * 7))); });
           bd.grid('hair', rows, { closed: true, weights: headW, color: strands, capEnd: true });
         }
       }
@@ -440,8 +446,8 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
   // ---------- arms, hands ----------
   const sleeve = (() => {
     switch (a.top) {
-      case 'trail-jacket': return { end: 0.335, key: jacketKey, roll: true, off: 0.011 };
-      case 'crop-jacket': return { end: 0.33, key: jacketKey, roll: true, off: 0.008 };
+      case 'trail-jacket': return { end: 0.335, key: jacketKey, roll: true, off: 0.009 };
+      case 'crop-jacket': return { end: 0.33, key: jacketKey, roll: true, off: 0.007 };
       case 'tee': return { end: 0.13, key: 'cloth' as MatKey, roll: false, off: 0.01 };
       case 'vest': return { end: 0.1, key: 'cloth' as MatKey, roll: false, off: 0.008 };
       default: return { end: 0.51, key: jacketKey, roll: false, off: 0.014 };
@@ -454,7 +460,7 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
     const hex = y > yokeLine + 0.006 ? fit.yoke : y > yokeLine - 0.006 ? fit.piping : fit.body;
     return tint(hex, p, 0.12, 0);
   };
-  const armProfile = [[-0.04, 0.018, 0.02], [-0.032, 0.036, 0.038], [-0.018, 0.046, 0.049], [0.0, 0.051, 0.052], [0.06, 0.05, 0.05], [0.13, 0.046, 0.048], [0.22, 0.042, 0.044], [0.29, 0.038, 0.039], [0.35, 0.041, 0.039], [0.44, 0.034, 0.031], [0.53, 0.026, 0.021]];
+  const armProfile = [[-0.062, 0.014, 0.016], [-0.052, 0.03, 0.033], [-0.036, 0.042, 0.045], [-0.018, 0.049, 0.051], [0.0, 0.052, 0.053], [0.05, 0.052, 0.052], [0.1, 0.048, 0.05], [0.16, 0.045, 0.05], [0.235, 0.042, 0.044], [0.29, 0.037, 0.038], [0.33, 0.043, 0.041], [0.38, 0.042, 0.038], [0.45, 0.034, 0.03], [0.53, 0.027, 0.021]];
   const fa = female ? 0.86 : 1;
   for (const [side, sx] of [[0, -1], [1, 1]] as const) {
     const S = side === 0 ? P.armR : P.armL, bArm = side === 0 ? B.armR : B.armL, bEl = side === 0 ? B.elbowR : B.elbowL;
@@ -463,7 +469,7 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
       const el = smooth(0.24, 0.33, d), sp = smooth(0.02, -0.07, d) * 0.45;
       return [[B.spine, sp], [bArm, Math.max(0, 1 - el - sp)], [bEl, el]];
     };
-    const centre = (d: number): V3 => [S[0] + sx * (d < 0 ? 0.004 : 0), S[1] - d, d > 0.29 ? (d - 0.29) * 0.03 : 0];
+    const centre = (d: number): V3 => [S[0] + sx * (0.006 * smooth(-0.05, 0.0, d) * smooth(0.16, 0.04, d) - 0.022 * smooth(-0.01, -0.062, d)), S[1] - d, d > 0.29 ? (d - 0.29) * 0.03 : 0];
     const n = bd.n(18, 6);
     const armRing = (d: number, extra: number) => {
       const [rx, rz] = table(armProfile, d);
@@ -472,8 +478,8 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
     const ds = (d0: number, d1: number, k: number) => Array.from({ length: k + 1 }, (_, i) => d0 + (d1 - d0) * (i / k));
     // sleeve (or the shoulder cap of a sleeveless top)
     const sl: V3[][] = [];
-    for (const d of [-0.04, -0.032, -0.018, ...ds(0, sleeve.end, bd.n(14, 5))]) sl.push(armRing(d, sleeve.off * smooth(-0.045, -0.015, d)));
-    if (sleeve.roll) for (const [dd, ex] of [[0.006, 0.02], [0.018, 0.024], [0.03, 0.019], [0.036, 0.004]] as const) sl.push(armRing(sleeve.end + dd, ex));
+    for (const d of [-0.062, -0.052, -0.036, -0.018, ...ds(0, sleeve.end, bd.n(14, 5))]) sl.push(armRing(d, sleeve.off * smooth(-0.062, -0.03, d)));
+    if (sleeve.roll) for (const [dd, ex] of [[0.006, 0.012], [0.017, 0.015], [0.028, 0.012], [0.034, 0.003]] as const) sl.push(armRing(sleeve.end + dd, ex));
     else sl.push(armRing(sleeve.end + 0.004, sleeve.off * 0.4));
     const yokeLine = S[1] - 0.075;
     bd.grid(sleeve.key, sl, { closed: true, capStart: true, weights: armW, color: p => (sleeve.key === 'cloth' && (a.top === 'tee' || a.top === 'vest') ? tint(teeHex, p, 0.08, 0) : jacketColor(p, yokeLine)), inside: i => centre(S[1] - sl[i][0][1]) });
@@ -558,7 +564,7 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
 
   // ---------- legs ----------
   const LEG = [[1.0, 0.078, 0.076, 0.09, 0.0, -0.005], [0.9, 0.083, 0.08, 0.097, 0.004, -0.006], [0.8, 0.077, 0.074, 0.084, 0.005, 0.0], [0.68, 0.068, 0.067, 0.072, 0.004, 0.004],
-    [0.56, 0.057, 0.06, 0.058, 0.0, 0.006], [0.49, 0.054, 0.06, 0.054, 0.0, 0.01], [0.42, 0.055, 0.055, 0.062, 0.0, 0.003], [0.33, 0.054, 0.051, 0.062, 0.0, -0.004],
+    [0.56, 0.058, 0.06, 0.058, 0.0, 0.006], [0.49, 0.052, 0.058, 0.052, 0.0, 0.01], [0.42, 0.054, 0.054, 0.064, 0.0, 0.002], [0.36, 0.055, 0.052, 0.066, 0.0, -0.004], [0.3, 0.051, 0.05, 0.058, 0.0, -0.004],
     [0.255, 0.05, 0.05, 0.052, 0.0, -0.002], [0.215, 0.057, 0.058, 0.058, 0, 0], [0.19, 0.052, 0.052, 0.052, 0, 0], [0.16, 0.048, 0.048, 0.048, 0, 0]];
   const bootTop = a.boots === 'tall' ? 0.3 : 0.2;
   for (const [side, sx] of [[0, -1], [1, 1]] as const) {
@@ -579,7 +585,13 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
       const y = 1.0 - (1.0 - yBottom) * (i / steps);
       const L = legAt(bootTop > 0.25 && y < 0.36 ? Math.max(y, 0.26) - 0.1 * smooth(0.36, 0.26, y) : y);
       const blouse = bootTop > 0.25 ? 0 : 0;
-      rows.push(ring(L.c, [sx, 0, 0], [0, 0, 1], n, { xp: L.rl + blouse, xn: L.rl * 0.92, yp: L.rf, yn: L.rb, p: 2.2 }, ang => 1 + 0.012 * Math.sin(ang * 6 + y * 40)));
+      rows.push(ring(L.c, [sx, 0, 0], [0, 0, 1], n, { xp: L.rl + blouse, xn: L.rl * 0.92, yp: L.rf, yn: L.rb, p: 2.2 }, ang => {
+        // cloth: soft vertical drape, bunching behind the knee and stacking above the boot
+        const back = Math.max(0, -Math.cos(ang)), front = Math.max(0, Math.cos(ang));
+        const knee = Math.exp(-(((y - 0.47) / 0.05) ** 2)) * (0.6 * back + 0.25), stack = smooth(bootTop + 0.13, bootTop + 0.01, y);
+        return 1 + 0.012 * Math.sin(ang * 6 + y * 40) + 0.035 * knee * Math.max(0, Math.sin(y * 150 + ang)) + 0.06 * stack * (0.4 + 0.6 * Math.max(0, Math.sin(y * 120 + ang * 2))) * (0.6 + 0.4 * front)
+          + 0.02 * smooth(0.8, 0.95, y) * front * Math.sin(ang * 3 + y * 25);
+      }));
     }
     bd.grid('canvas', rows, {
       closed: true, weights: legW, inside: i => [Tn[0], rows[i][0][1], 0],
@@ -612,7 +624,7 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
         if (right || female) {
           for (const y of [0.8, 0.66]) {
             const r2: V3[][] = [];
-            for (const [dy, ex] of [[0.014, 0.002], [0.012, 0.006], [-0.012, 0.006], [-0.014, 0.002]] as const) { const Ly = legAt(y + dy); r2.push(ring(Ly.c, [sx, 0, 0], [0, 0, 1], n, { xp: Ly.rl + ex, xn: Ly.rl * 0.92 + ex, yp: Ly.rf + ex, yn: Ly.rb + ex, p: 2.2 })); }
+            for (const [dy, ex] of [[0.011, 0.0015], [0.009, 0.0045], [-0.009, 0.0045], [-0.011, 0.0015]] as const) { const Ly = legAt(y + dy); r2.push(ring(Ly.c, [sx, 0, 0], [0, 0, 1], n, { xp: Ly.rl + ex, xn: Ly.rl * 0.92 + ex, yp: Ly.rf + ex, yn: Ly.rb + ex, p: 2.2 })); }
             bd.grid('leather', r2, { closed: true, weights: legW, color: p => tint('#2b2219', p, 0.1, 0.5) });
           }
           const Ly = legAt(0.73), hxp = Ly.c[0] + sx * (Ly.rl + 0.02), box = roundedBox([hxp, 0.73, Ly.c[2] + 0.025], [sx, 0, 0], [0, 1, 0], [0, 0, 1], 0.022, 0.07, 0.05, bd.n(12, 6));
@@ -683,7 +695,7 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
   // ---------- jacket shells (open jackets, vest) and collars ----------
   if (a.top === 'trail-jacket' || a.top === 'crop-jacket' || a.top === 'vest') {
     const crop = a.top === 'crop-jacket', vest = a.top === 'vest';
-    const hem = crop ? 1.12 : vest ? 0.99 : 0.93, top = 1.495;
+    const hem = crop ? 1.12 : vest ? 0.99 : 0.93, top = 1.478;
     const gapAt = (y: number) => (crop ? 0.26 + 0.22 * smooth(1.42, 1.15, y) : vest ? 0.35 + 0.15 * smooth(1.45, 1.0, y) : 0.2 + 0.3 * smooth(1.45, 0.95, y));
     const offAt = (y: number) => (crop ? 0.011 : 0.019) + (crop ? 0 : 0.014 * smooth(1.15, 0.93, y));
     const R = bd.n(26, 8), Cn = bd.n(44, 12), rows: V3[][] = [];
@@ -730,7 +742,7 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
     const open = a.top === 'trail-jacket' || a.top === 'crop-jacket' || a.top === 'vest' ? 0.42 : a.top === 'flannel' ? 0.25 : 0.12;
     const key = a.top === 'vest' ? 'cloth' : jacketKey;
     const rows: V3[][] = [], Cn = bd.n(28, 10);
-    const levels: [number, number][] = a.top === 'field-jacket' ? [[1.5, 0.012], [1.54, 0.016], [1.57, 0.022], [1.572, 0.012]] : [[1.49, 0.014], [1.528, 0.017], [1.548, 0.027], [1.528, 0.043], [1.5, 0.05]];
+    const levels: [number, number][] = a.top === 'field-jacket' ? [[1.5, 0.012], [1.54, 0.016], [1.57, 0.022], [1.572, 0.012]] : [[1.475, 0.016], [1.508, 0.019], [1.526, 0.028], [1.508, 0.043], [1.482, 0.05]];
     for (const [y, ex] of levels) {
       const r: V3[] = [];
       for (let j = 0; j <= Cn; j++) { const ang = open + (Math.PI * 2 - 2 * open) * (j / Cn); r.push(add([Math.sin(ang) * (neckR + ex) * 1.08, y, Math.cos(ang) * (neckR + ex) - 0.006], [0, 0, 0])); }
@@ -760,8 +772,8 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
   if (a.accessories.includes('scarf')) {
     const n = bd.n(36, 10), rows: V3[][] = [];
     const levels: [number, number, number][] = female
-      ? [[1.545, 0.051, 0.01], [1.525, 0.066, 0.02], [1.5, 0.086, 0.024], [1.475, 0.106, 0.02], [1.455, 0.122, 0.012]]
-      : [[1.548, 0.062, 0.01], [1.527, 0.078, 0.02], [1.5, 0.098, 0.026], [1.472, 0.124, 0.022], [1.448, 0.142, 0.012]];
+      ? [[1.522, 0.05, 0.01], [1.505, 0.062, 0.02], [1.482, 0.082, 0.024], [1.46, 0.1, 0.02], [1.442, 0.114, 0.012]]
+      : [[1.53, 0.062, 0.01], [1.51, 0.076, 0.02], [1.485, 0.096, 0.026], [1.46, 0.12, 0.022], [1.438, 0.136, 0.012]];
     for (const [y, r, fold] of levels) rows.push(ring([0, y, 0.008], [1, 0, 0], [0, 0, 1], n, { xp: r * 1.06, yp: r }, ang => 1 + fold * 3 * Math.sin(ang * 7 + y * 60) * 0.3 + (Math.cos(ang) > 0 ? 0.08 * Math.cos(ang) : 0)));
     const scarfW: WeightFn = p => { const k = smooth(1.49, 1.55, p[1]); return [[B.spine, 1 - k], [B.neck, k * 0.8], [B.head, k * 0.2]]; };
     bd.grid('bandana', rows, { closed: true, weights: scarfW, color: p => mulc(WHITE, cavity(p) * (0.9 + fbm(p, 30, 2) * 0.2)), inside: i => [0, rows[i][0][1], 0.008] });
@@ -820,7 +832,7 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
 
   // ---------- backpack ----------
   if (a.accessories.includes('backpack')) {
-    const off = a.top === 'trail-jacket' ? 0.035 : a.top === 'crop-jacket' ? 0.016 : closedTop ? 0.016 : 0.006;
+    const off = a.top === 'trail-jacket' ? 0.027 : a.top === 'crop-jacket' ? 0.016 : closedTop ? 0.016 : 0.006;
     const backZ = (y: number) => torso(y, Math.PI, off)[2];
     const pw = (female ? 0.26 : 0.3) * W, ph = female ? 0.38 : 0.42, pd = female ? 0.13 : 0.15, py = female ? 1.25 : 1.23;
     const zb = Math.min(backZ(py - 0.1), backZ(py + 0.1)) - pd / 2 + 0.012;
@@ -855,14 +867,15 @@ export function buildModel(bd: Builder, a: CharacterAppearance, rig: RigLayout):
       }
     }
     // shoulder straps following the torso
-    const strapOff = off + 0.001;
+    const strapOff = off + 0.001, topOff = (a.top === 'trail-jacket' ? 0.019 : a.top === 'crop-jacket' ? 0.011 : closedTop ? 0.016 : 0.004) + 0.007;
+    const sOff = (y: number) => strapOff - (strapOff - topOff) * smooth(1.36, 1.44, y);
     for (const sx of [-1, 1]) {
-      const pts: V3[] = ([[1.43, Math.PI - 0.42], [1.495, 2.15], [1.515, 1.45], [1.47, 0.85], [1.38, 0.62], [1.3, 0.66], [1.265, 0.98], [1.255, 1.35], [1.23, 1.9], [1.18, 2.45]] as [number, number][])
-        .map(([y, ang]) => torso(y, sx * ang, strapOff + (y > 1.45 ? 0.012 : 0)));
+      const pts: V3[] = ([[1.395, Math.PI - 0.52], [1.445, 2.15], [1.462, 1.58], [1.44, 0.98], [1.37, 0.66], [1.3, 0.66], [1.265, 0.98], [1.255, 1.35], [1.23, 1.9], [1.18, 2.45]] as [number, number][])
+        .map(([y, ang]) => torso(y, sx * ang, sOff(y)));
       const path = spline(pts, bd.n(28, 10)), rows: V3[][] = [];
       path.forEach((p, i) => {
         const t = norm(sub(path[Math.min(path.length - 1, i + 1)], path[Math.max(0, i - 1)]));
-        const out = norm([p[0], 0, p[2] - 0.0]), side = norm(cross(t, out)), up2 = norm(cross(side, t));
+        const out = norm([p[0], Math.max(0, p[1] - 1.3) * 1.6, p[2] + 0.01]), side = norm(cross(t, out)), up2 = norm(cross(side, t));
         const pad = i / path.length < 0.55 ? 1.25 : 0.8;
         rows.push(ring(add(p, scl(up2, 0.006)), side, up2, 8, { xp: 0.026 * pad, yp: 0.006 * pad, p: 5 }));
       });

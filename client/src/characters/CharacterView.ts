@@ -31,10 +31,12 @@ interface Pose {
   hip: [number, number]; knee: [number, number];
   shoulder: [number, number]; abduct: [number, number]; elbow: [number, number];
   footFlat: number;
+  /** stance width: thighs out to the side (radians) */
+  spread: number;
   /** vertical bounce of the stride, metres */
   bob: number;
 }
-const zero = (): Pose => ({ hipsY: 0, lean: 0, headPitch: 0, twist: 0, hip: [0, 0], knee: [0, 0], shoulder: [0, 0], abduct: [0, 0], elbow: [0, 0], footFlat: 0, bob: 0 });
+const zero = (): Pose => ({ hipsY: 0, lean: 0, headPitch: 0, twist: 0, hip: [0, 0], knee: [0, 0], shoulder: [0, 0], abduct: [0, 0], elbow: [0, 0], footFlat: 0, spread: 0, bob: 0 });
 export type PoseName = 'idle' | 'walk' | 'run' | 'sprint' | 'crouch' | 'crouch-walk' | 'jump' | 'fall' | 'land' | 'seated' | 'climb' | 'talk';
 const POSES: PoseName[] = ['idle', 'walk', 'run', 'sprint', 'crouch', 'crouch-walk', 'jump', 'fall', 'land', 'seated', 'climb', 'talk'];
 
@@ -276,10 +278,10 @@ export class CharacterView {
         const br = Math.sin(t * 1.7);
         p.hip = [0.03, -0.02]; p.knee = [0.05, 0.08]; p.shoulder = [0.04, 0.02]; p.abduct = [0.1 + br * 0.015, 0.1 + br * 0.015];
         p.elbow = [0.18, 0.2]; p.lean = 0.02 + br * 0.012; p.headPitch = Math.sin(t * 0.37) * 0.05; p.twist = Math.sin(t * 0.23) * 0.04;
-        p.hipsY = NaN; p.footFlat = 1; break;
+        p.hipsY = NaN; p.footFlat = 1; p.spread = 0.06; break;
       }
       case 'talk': {
-        p.hip = [0.03, -0.02]; p.knee = [0.05, 0.08]; p.lean = 0.03; p.hipsY = NaN; p.footFlat = 1;
+        p.hip = [0.03, -0.02]; p.knee = [0.05, 0.08]; p.lean = 0.03; p.hipsY = NaN; p.footFlat = 1; p.spread = 0.06;
         p.shoulder = [0.35 + Math.sin(t * 2.3) * 0.25, 0.05]; p.abduct = [0.2, 0.1]; p.elbow = [1.1 + Math.sin(t * 3.1) * 0.3, 0.25];
         p.headPitch = Math.sin(t * 1.9) * 0.08; break;
       }
@@ -345,7 +347,7 @@ export class CharacterView {
       const w = this.weights.get(n)! / (sum || 1);
       if (!w) continue;
       const p = this.pose(n, c, o);
-      b.lean += p.lean * w; b.headPitch += p.headPitch * w; b.twist += p.twist * w; b.footFlat += p.footFlat * w;
+      b.lean += p.lean * w; b.headPitch += p.headPitch * w; b.twist += p.twist * w; b.footFlat += p.footFlat * w; b.spread += p.spread * w;
       for (let i = 0; i < 2; i++) { b.hip[i] += p.hip[i] * w; b.knee[i] += p.knee[i] * w; b.shoulder[i] += p.shoulder[i] * w; b.abduct[i] += p.abduct[i] * w; b.elbow[i] += p.elbow[i] * w; }
       if (!Number.isNaN(p.hipsY)) { fixedY += p.hipsY * w; fixedW += w; }
       bob += p.bob * w;
@@ -363,7 +365,9 @@ export class CharacterView {
       this.knees[i].rotation.x = b.knee[i];
       this.ankles[i].rotation.x = (b.hip[i] - b.knee[i]) * b.footFlat; // keep the sole level with the ground
       this.arms[i].rotation.x = -b.shoulder[i];
-      this.arms[i].rotation.z = -side * b.abduct[i];
+      this.arms[i].rotation.z = side * b.abduct[i];
+      this.thighs[i].rotation.z = side * b.spread;
+      this.ankles[i].rotation.z = -side * b.spread;
       this.elbows[i].rotation.x = -b.elbow[i];
     }
     this.updateHair(dt, b.lean + b.headPitch * 0.6);

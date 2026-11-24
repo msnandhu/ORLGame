@@ -1,7 +1,9 @@
-import { VehicleSpec, RANGER_TX4, BRAMBLE_RC2, VANTA_GT, STRIX_R2, PELLA, CORVAN, HALCYON, SOLENNE_GT } from './spec';
+import { VehicleSpec, RANGER_TX4, BRAMBLE_RC2, VANTA_GT, STRIX_R2, PELLA, CORVAN, HALCYON, SOLENNE_GT, SOVEREIGN_X1 } from './spec';
 
 /** Every drivable vehicle, in garage order. Add a vehicle by adding a spec here. */
-export const VEHICLES: readonly VehicleSpec[] = [RANGER_TX4, BRAMBLE_RC2, VANTA_GT, STRIX_R2, PELLA, CORVAN, HALCYON, SOLENNE_GT];
+export const VEHICLES: readonly VehicleSpec[] = [RANGER_TX4, BRAMBLE_RC2, VANTA_GT, STRIX_R2, PELLA, CORVAN, HALCYON, SOLENNE_GT, SOVEREIGN_X1];
+/** Vehicles that can't be bought: the story hands them over. */
+export const STORY_VEHICLES = new Set(['sovereign-x1']);
 /** Road cars (drive on tarmac); the rest are off-roaders. */
 export const isRoadCar = (s: VehicleSpec) => s.drivetrain !== 'part-time-4wd';
 

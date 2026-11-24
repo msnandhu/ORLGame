@@ -7,7 +7,7 @@ import {
   VehicleTransition, pickInteractable, Npc, CAMP_MECHANIC, DialogueSession, statureOf, decodeAppearance, DEFAULT_MALE,
   Traffic, Island, isRoadCar, PELLA, CORVAN, HALCYON, STRIX_R2, VANTA_GT, SOLENNE_GT,
   applyBuild, defaultBuild, encodeBuild, decodeBuild, vehiclePrice, formatMoney, newCareer, discoveryReward, DISCOVERY_RADIUS, FUEL_PRICE, KIT_PRICE,
-  type VehicleSpec, type Settings, type TrafficObstacle, type PlayerTransform, type ImpactEvent, type Interactable, type CharacterAppearance, type DoorPose,
+  STORY_VEHICLES, type VehicleSpec, type Settings, type TrafficObstacle, type PlayerTransform, type ImpactEvent, type Interactable, type CharacterAppearance, type DoorPose,
 } from '@orl/shared';
 import { createEngine, type Backend } from '../engine/createEngine';
 import { AssetManager } from '../assets/AssetManager';
@@ -41,13 +41,15 @@ import { log } from './logger';
 import { Bank } from '../garage/Bank';
 import { GarageScene } from '../garage/GarageScene';
 import { GarageUI } from '../garage/GarageUI';
+import { StoryDirector } from '../story/StoryDirector';
+import type { JournalTab } from '../story/StoryUI';
 const REGION_NAME: Record<string, string> = { plain: 'the Plain Region', hill: 'the Hill Region', snow: 'the Snow Region', forest: 'the Deep Forest' };
 import { markStarted } from './errors';
 
 const $ = (id: string) => document.getElementById(id)!;
 const SPAWN = { px: 1, pz: -2, ph: -2.4 };
 /** Parking bays at base camp, one per catalog vehicle (in catalog order). */
-const BAYS = [{ x: -4, z: 4, h: 0.4 }, { x: -10.5, z: 2.5, h: 0.4 }];
+const BAYS = [{ x: -4, z: 4, h: 0.4 }, { x: -10.5, z: 2.5, h: 0.4 }, { x: -17, z: 1, h: 0.4 }];
 /** The open-sided shed at camp doubles as the workshop (and the garage). */
 const WORKSHOP = { x: -18, z: 11, r: 9 };
 /** Island garages (map places) where the garage can be used too. */
@@ -86,6 +88,12 @@ export class GameApp {
   private transition: VehicleTransition | null = null; private transitionVehicle: Vehicle | null = null;
   npc!: Npc; npcView!: CharacterView;
   dialogue: DialogueSession | null = null;
+  /** who the player is talking to */
+  private talking: Npc | null = null;
+  /** the campaign: missions, cutscenes, the underground */
+  story!: StoryDirector;
+  /** briefing, journal or cutscene: the player's controls are held */
+  private controlLock = false; private wasBelow = false;
   /** character creator open: the camera orbits the player */
   creatorOpen = false; creatorSpin = 0;
   private acc = 0; private refuel = 0; private playTime = 0;
@@ -181,6 +189,22 @@ export class GameApp {
       close: () => this.closeGarage(),
     });
     this.bank.onChange = () => { this.refreshFleet(); this.garage.refresh(); };
+    const app = this;
+    this.story = new StoryDirector({
+      scene, terrain: this.terrain, rig: this.rig, env: this.env, hud: this.hud, canvas: this.canvas,
+      get inVehicle() { return app.inVehicle; }, get vehicle() { return app.vehicle; }, get player() { return app.player; },
+      career: () => this.bank.career,
+      request: r => this.bank.request(r),
+      addCasters: ms => { for (const m of ms) this.env.addShadowCaster(m); },
+      removeCasters: ms => { for (const m of ms) this.env.removeShadowCaster(m); },
+      keepMeshes: () => {
+        const keep = new Set<import('@babylonjs/core/Meshes/abstractMesh').AbstractMesh>([...this.vView.meshes, ...this.cView.meshes]);
+        for (const r of this.remoteViews.values()) { for (const m of r.v.meshes) keep.add(m); for (const m of r.c.meshes) keep.add(m); }
+        return keep;
+      },
+      setControlLock: on => this.setControlLock(on),
+      online: () => this.net.status === 'online',
+    });
     this.newGame(false);
     onProgress(0.9, 'Streaming the island');
     await this.islandR.prime(new Vector3(this.player.pos.x, this.player.pos.y + 2, this.player.pos.z), 25000);
@@ -216,6 +240,7 @@ export class GameApp {
     const s = fromSave ? SaveGame.read() : null;
     // starting over (a save exists and the player chose New game) starts a new career too
     if (!fromSave && SaveGame.read() && this.net.status !== 'online') this.bank.resetLocal(newCareer());
+    this.story?.reset();
     this.refreshFleet();
     this.fleet.forEach((v, i) => {
       const bay = this.home(v);
@@ -426,6 +451,7 @@ export class GameApp {
     view.dent(e);
     if (e.part !== 'suspension') fx.impact(e.point, e.severity);
     if (v !== this.vehicle || !this.inVehicle || !this.hud) return;
+    if (e.part !== 'suspension' && e.severity > 0.04) this.story?.sim?.notePlayerImpact();
     const c = v.condition;
     if (e.part === 'suspension') { if (e.wheel >= 0 && c.tyres[e.wheel] >= 1) this.hud.toast('Puncture!'); else if (e.severity > 0.3) this.hud.toast('Hard landing: suspension damaged'); }
     else if (e.severity > 0.25) this.hud.toast(e.part === 'front' && c.cooling > 0.3 ? 'Heavy front impact: radiator damaged' : `Heavy impact (${e.part})`);
@@ -456,12 +482,14 @@ export class GameApp {
   /** The driver's door, level with the seat, a step out from the body. */
   private doorLocal(v: Vehicle) { return new Vec3(v.spec.halfExtents[0] + 0.45, 0, v.spec.look.seat[2]); }
   private doorPose(v: Vehicle): DoorPose { const d = this.doorLocal(v).applyQuaternion(v.body.quat).add(v.body.pos); return { x: d.x, z: d.z, vehicleYaw: v.body.quat.yaw() }; }
+  /** Vehicles that exist in the world: story vehicles only once the story hands them over. */
+  private present(v: Vehicle) { return !STORY_VEHICLES.has(v.spec.id) || this.owns(v); }
   private obstacles() {
-    return this.fleet.map(f => ({ cx: f.body.pos.x, cz: f.body.pos.z, hx: f.spec.halfExtents[0], hz: f.spec.halfExtents[2] + 0.05, yaw: f.body.quat.yaw(), top: f.body.pos.y + f.spec.hullOffsetY + f.spec.halfExtents[1] }));
+    return this.fleet.filter(f => this.present(f)).map(f => ({ cx: f.body.pos.x, cz: f.body.pos.z, hx: f.spec.halfExtents[0], hz: f.spec.halfExtents[2] + 0.05, yaw: f.body.quat.yaw(), top: f.body.pos.y + f.spec.hullOffsetY + f.spec.halfExtents[1] }));
   }
   /** Everything the player can use on foot right now. */
   interactables(): Interactable[] {
-    const list: Interactable[] = this.fleet.map(v => {
+    const list: Interactable[] = this.fleet.filter(v => this.present(v)).map(v => {
       const d = this.doorPose(v), own = this.owns(v);
       return { id: `vehicle:${v.spec.id}`, kind: 'vehicle', x: d.x, z: d.z, radius: 3.2, label: own ? `drive the ${v.spec.name}` : `look at the ${v.spec.name} (for sale, ${formatMoney(vehiclePrice(v.spec.id))})` };
     });
@@ -470,6 +498,7 @@ export class GameApp {
     for (const id of GARAGE_POIS) { const g = this.island.pois.find(q => q.id === id); if (g) list.push({ id: 'garage', kind: 'workshop', x: g.x, z: g.z, radius: 14, label: `open the garage (${g.name})` }); }
     const b = this.npc.body.pos;
     list.push({ id: `npc:${this.npc.def.id}`, kind: 'npc', x: b.x, z: b.z, radius: 2.6, label: `talk to ${this.npc.def.name}` });
+    if (this.story) list.push(...this.story.interactables());
     return list;
   }
 
@@ -527,23 +556,24 @@ export class GameApp {
   }
 
   // ---- NPC conversation ----
-  private openDialogue() {
-    this.dialogue = new DialogueSession(this.npc.def, a => this.npcAction(a));
-    this.npc.startTalk(this.player.pos.x, this.player.pos.z);
+  private openDialogue(npc: Npc = this.npc) {
+    this.talking = npc;
+    this.dialogue = new DialogueSession(npc.def, a => this.npcAction(a));
+    npc.startTalk(this.player.pos.x, this.player.pos.z);
     this.input.allowLock = false;
-    this.player.heading = Math.atan2(this.npc.body.pos.x - this.player.pos.x, this.npc.body.pos.z - this.player.pos.z);
+    this.player.heading = Math.atan2(npc.body.pos.x - this.player.pos.x, npc.body.pos.z - this.player.pos.z);
     document.exitPointerLock?.();
     this.renderDialogue();
   }
   closeDialogue() {
-    this.dialogue = null; this.npc.endTalk(); this.input.allowLock = true;
+    this.dialogue = null; (this.talking ?? this.npc).endTalk(); this.talking = null; this.input.allowLock = !this.controlLock;
     $('dialogue').classList.add('hidden');
   }
   chooseDialogue(i: number) { if (!this.dialogue) return; this.dialogue.choose(i); this.renderDialogue(); }
   private renderDialogue() {
     const d = this.dialogue;
     if (!d || d.ended || !d.node) { this.closeDialogue(); return; }
-    $('dlg-name').textContent = this.npc.def.name;
+    $('dlg-name').textContent = (this.talking ?? this.npc).def.name;
     $('dlg-text').textContent = d.node.text;
     const opts = $('dlg-options'); opts.innerHTML = '';
     d.node.options.forEach((o, i) => {
@@ -557,6 +587,7 @@ export class GameApp {
   }
   /** Dialogue actions use the same systems as the workshop. Returns a node to divert to when it can't be done. */
   private npcAction(action: string): string | void {
+    if (action === 'story-talk') { this.story.talk(); return; }
     if (action === 'restock') {
       const missing = KITS_PER_TRIP - this.repairKits;
       if (missing > 0) void this.bank.request({ op: 'kits', count: missing }).then(r => { if (r.ok) this.repairKits = KITS_PER_TRIP; this.hud.toast(r.ok ? `Repair kits restocked: ${r.msg}` : r.msg); });
@@ -607,7 +638,7 @@ export class GameApp {
         if (!v.automatic && (inp.wasPressed('KeyX') || inp.padPressed.has(5))) v.shiftUp();
         if (!v.automatic && (inp.wasPressed('KeyZ') || inp.padPressed.has(4))) v.shiftDown();
         if (inp.wasPressed('KeyN')) this.vView.setHeadlights(!this.vView.headlightsOn);
-        if (inp.wasPressed('KeyR')) { v.recover(); this.hud.toast('Vehicle recovered'); }
+        if (inp.wasPressed('KeyR')) { if (this.story.active) this.story.sim!.recoverPlayer(v); else v.recover(); this.hud.toast('Vehicle recovered'); }
         if (inp.wasPressed('KeyC') || inp.padPressed.has(2)) {
           v.setDrivingMode(nextDrivingMode(v.drivingMode, v.spec.modes));
           const m = DRIVING_MODE_PROFILES[v.drivingMode];
@@ -638,15 +669,16 @@ export class GameApp {
           v.flooded ? 'Engine flooded: press R to recover' : v.fuel <= 0 ? 'Out of fuel: pause menu → Tow vehicle home' :
           dmg.engine >= 1 ? 'Engine destroyed: pause menu → Tow vehicle home' :
           v.overheated ? `Engine overheated (${Math.round(v.engineTemp)} °C): let it cool, then it restarts${this.repairKits > 0 && dmg.cooling > 0.3 ? ' · K: patch the radiator' : ''}` :
-          v.upsideDownTimer > 1.5 ? 'Vehicle stuck: press R to recover' : null);
-        if (enter && this.seat === 'seated') this.exitVehicle();
+          v.upsideDownTimer > 1.5 ? 'Vehicle stuck: press R to recover' : this.story.prompt);
+        if (enter && this.seat === 'seated' && !this.controlLock) this.exitVehicle();
         const ctl = { throttle: inp.isDown('KeyW') || inp.isDown('ArrowUp') ? 1 : 0, brake: inp.isDown('KeyS') || inp.isDown('ArrowDown') ? 1 : 0, steer: inp.axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']), handbrake: inp.isDown('Space') ? 1 : 0 };
         if (gp) { ctl.throttle = Math.max(ctl.throttle, inp.padButton(7)); ctl.brake = Math.max(ctl.brake, inp.padButton(6)); if (inp.padAxis(0)) ctl.steer = inp.padAxis(0); ctl.handbrake = Math.max(ctl.handbrake, inp.padButton(0)); }
-        while (this.acc >= fixed && steps < 14) { v.step(fixed, ctl); this.acc -= fixed; steps++; }
+        if (this.controlLock) { ctl.throttle = 0; ctl.steer = 0; ctl.brake = 1; ctl.handbrake = 1; }
+        while (this.acc >= fixed && steps < 14) { this.story.substep(fixed, v); v.step(fixed, ctl); this.acc -= fixed; steps++; }
         this.player.pos.copy(v.body.pos);
         this.stepParked(steps, v);
       } else {
-        while (this.acc >= fixed && steps < 14) { this.acc -= fixed; steps++; }
+        while (this.acc >= fixed && steps < 14) { this.story.substep(fixed, null); this.acc -= fixed; steps++; }
         this.stepParked(steps, null);
         const obstacles = this.obstacles();
         if (this.transition) {
@@ -659,7 +691,7 @@ export class GameApp {
           if (enter) this.closeDialogue();
           this.hud.prompt(null);
         } else {
-          const free = this.rig.mode === 'free';
+          const free = this.rig.mode === 'free' || this.controlLock;
           const fwd = free ? 0 : inp.axis(['KeyS', 'ArrowDown'], ['KeyW', 'ArrowUp']) || -inp.padAxis(1);
           const right = free ? 0 : inp.axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']) || inp.padAxis(0);
           const padMag = Math.hypot(inp.padAxis(0), inp.padAxis(1));
@@ -671,14 +703,14 @@ export class GameApp {
           }, obstacles);
           if (this.rig.mode === 'first-person') this.player.heading = this.rig.yaw + Math.PI;
           const p = this.player, target = p.grounded ? pickInteractable(p.pos.x, p.pos.z, p.heading, this.interactables()) : null;
-          this.hud.prompt(target ? `Press E to ${target.label}` : null);
+          this.hud.prompt(target ? `Press E to ${target.label}` : this.story.prompt);
           if (enter && target) {
             if (target.kind === 'vehicle') {
               const v = this.fleet.find(f => `vehicle:${f.spec.id}` === target.id);
               if (v && this.owns(v)) this.beginEnter(v);
               else if (v) this.hud.toast(`The ${v.spec.name} is for sale: buy it in a garage for ${formatMoney(vehiclePrice(v.spec.id))} (you have ${formatMoney(this.bank.career.cash)})`);
             } else if (target.kind === 'workshop') this.openGarage(this.garageHere() ?? 'Garage');
-            else if (target.kind === 'npc') this.openDialogue();
+            else if (target.kind === 'npc') this.openDialogue(target.id === `npc:${this.story.ezra.def.id}` ? this.story.ezra : this.npc);
           }
         }
       }
@@ -699,6 +731,7 @@ export class GameApp {
       this.net.update(dt, this.localTransform());
     }
     // ---- presentation ----
+    this.fleetViews.forEach((view, i) => view.root.setEnabled(this.present(this.fleet[i])));
     for (const view of this.fleetViews) { view.sync(); view.setCockpit(view === this.vView && this.inVehicle && this.rig.mode === 'first-person'); }
     this.syncPlayerView(dt);
     this.npcView.sync(this.npc.body, dt, this.npc.state === 'talk' ? { mode: 'talk' } : {});
@@ -707,15 +740,21 @@ export class GameApp {
     this.env.sky.update(performance.now() / 1000);
     this.syncRemotes(dt);
     const focus = this.inVehicle ? v.body.pos : this.player.pos;
+    let cutscene = this.story.cutscene;
+    if (this.started && !this.paused) cutscene = this.story.update(dt);
+    if (this.story.below !== this.wasBelow) { this.wasBelow = this.story.below; if (this.story.below) this.vView.setHeadlights(true); }
     const freeMove = { f: this.input.axis(['KeyS'], ['KeyW']), r: this.input.axis(['KeyA'], ['KeyD']), u: this.input.axis(['KeyQ'], ['KeyE']), fast: this.input.isDown('ShiftLeft') };
     if (this.creatorOpen) {
       this.creatorSpin -= this.input.mouseDX * 0.008;
       this.rig.portrait(this.player.pos, this.player.heading + this.creatorSpin, statureOf(this.appearance));
-    } else this.rig.update(dt, focus, this.inVehicle ? v.body.quat.yaw() : this.player.heading, this.inVehicle, Math.abs(v.forwardSpeed()), this.inVehicle ? v.body.quat : null, freeMove);
+    } else if (!cutscene) this.rig.update(dt, focus, this.inVehicle ? v.body.quat.yaw() : this.player.heading, this.inVehicle, Math.abs(v.forwardSpeed()), this.inVehicle ? v.body.quat : null, freeMove);
     const cam = this.rig.camera.position;
     this.rig.camera.minZ = this.rig.mode === 'first-person' ? 0.08 : 0.3;
-    this.terrainR.update(cam); this.islandR.update(cam); this.islandF.update(cam); this.props.update(cam); this.grass.update(cam); this.roads.update(cam);
-    this.trafficR.update(cam, dt);
+    // underground the surface is switched off: no streaming up there
+    if (!this.story.below) {
+      this.terrainR.update(cam); this.islandR.update(cam); this.islandF.update(cam); this.props.update(cam); this.grass.update(cam); this.roads.update(cam);
+      this.trafficR.update(cam, dt);
+    }
     this.env.follow(new Vector3(focus.x, focus.y, focus.z));
     if (this.started) {
       this.hud.kits = this.repairKits;
@@ -775,7 +814,7 @@ export class GameApp {
     const fixed = 1 / PHYSICS_HZ;
     const p = driven ? driven.body.pos : this.player.pos;
     for (const f of this.fleet) {
-      if (f === driven) continue;
+      if (f === driven || !this.present(f)) continue;
       // far away and at rest: asleep until someone comes near (traffic or the player can wake it by pushing)
       if (Math.hypot(f.body.pos.x - p.x, f.body.pos.z - p.z) > SLEEP_RANGE && f.body.vel.lengthSq() < 0.01 && f.body.angVel.lengthSq() < 0.01) continue;
       for (let k = 0; k < steps; k++) f.step(fixed, { throttle: 0, brake: 0, steer: 0, handbrake: 1 });
@@ -850,11 +889,28 @@ export class GameApp {
     const inp = this.input;
     if (this.dialogue && inp.wasPressed('Escape')) { this.closeDialogue(); return; }
     if (this.worldMap.isOpen) { if (inp.wasPressed('KeyM') || inp.wasPressed('Escape') || inp.padPressed.has(9)) this.toggleMap(); return; }
+    if (!this.paused && !this.dialogue) {
+      // the story takes its keys first: J journal, Y start, Enter/Space/Esc in briefings and cutscenes
+      for (const k of ['KeyJ', 'KeyY', 'Enter', 'Space', 'Escape']) {
+        if (!inp.wasPressed(k)) continue;
+        if (k === 'Space' && !this.story.cutscene) continue;
+        if (this.story.key(k)) { inp.consume(k); if (k === 'Escape') return; }
+      }
+    }
     if (inp.wasPressed('KeyP') || (inp.wasPressed('Escape') && !inp.locked) || inp.padPressed.has(9)) this.setPaused(!this.paused);
     if (inp.wasPressed('KeyH')) $('help').classList.toggle('hidden');
     if (inp.wasPressed('KeyM')) this.toggleMap();
     if (inp.wasPressed('F5')) this.save();
   }
+  /** Briefings, the journal and cutscenes hold the controls; the journal and briefing free the mouse. */
+  private setControlLock(on: boolean) {
+    this.controlLock = on;
+    if (on && (this.story?.ui.journalOpen || this.story?.ui.briefingOpen)) { document.exitPointerLock?.(); this.input.allowLock = false; }
+    else if (!on) this.input.allowLock = !this.dialogue && !this.garageOpen;
+  }
+  /** The journal from the menus (Story mode, Challenges). */
+  openJournal(tab?: JournalTab) { this.story.ui.openJournal(tab); this.setControlLock(true); }
+
   /** The world map pauses single-player driving while it is open (online, the world keeps running). */
   toggleMap() {
     if (!this.started) {
@@ -881,6 +937,7 @@ export class GameApp {
   }
   setPaused(p: boolean) {
     this.paused = p; $('pause').classList.toggle('hidden', !p);
+    $('btn-abandon').classList.toggle('hidden', !this.story?.active);
     if (!p) { $('settings').classList.add('hidden'); this.audio.start(); } else { document.exitPointerLock?.(); this.audio.suspend(); }
   }
 

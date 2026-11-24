@@ -1,5 +1,5 @@
 import {
-  VEHICLES, PART_GROUPS, slotsFor, optionsFor, fitted, findOption, applyBuild, defaultBuild, vehicleStats, vehiclePrice, partPrice,
+  VEHICLES, STORY_VEHICLES, PART_GROUPS, slotsFor, optionsFor, fitted, findOption, applyBuild, defaultBuild, vehicleStats, vehiclePrice, partPrice,
   paintPrice, resaleValue, formatMoney, FINISHES, LIVERIES, PAINT_SWATCHES, SURFACE_PROPS, TYRE_GRIP, Surface, linearToHex, stockOption,
   type VehicleSpec, type VehicleBuild, type SlotId, type PartGroup, type Career, type GarageRequest,
 } from '@orl/shared';
@@ -112,7 +112,7 @@ export class GarageUI {
     const tabs: [Tab, string][] = [['overview', 'Overview'], ['paint', 'Paint'], ...PART_GROUPS.map(g => [g.id, g.name] as [Tab, string])];
     const list = VEHICLES.map(v => {
       const o = c.owned[v.id];
-      return `<button class="gr-veh ${v.id === this.vid ? 'on' : ''}" data-act="veh" data-v="${v.id}"><b>${esc(v.name)}</b><span>${CATEGORY[v.category] ?? v.category}</span><em class="${o ? 'own' : ''}">${o ? 'Owned' : formatMoney(vehiclePrice(v.id))}</em></button>`;
+      return `<button class="gr-veh ${v.id === this.vid ? 'on' : ''}" data-act="veh" data-v="${v.id}"><b>${esc(v.name)}</b><span>${CATEGORY[v.category] ?? v.category}</span><em class="${o ? 'own' : ''}">${o ? 'Owned' : STORY_VEHICLES.has(v.id) ? 'Story reward' : formatMoney(vehiclePrice(v.id))}</em></button>`;
     }).join('');
     this.el.innerHTML = `
       <div class="gr-top"><div class="gr-title">Garage<small>${esc(this.where)}</small></div><div class="gr-cash" title="Your money">${formatMoney(c.cash)}</div><button class="gr-close" data-act="close">Leave garage</button></div>
@@ -133,7 +133,7 @@ export class GarageUI {
     const own = this.owned(), spec = this.spec;
     const fittedParts = own ? slotsFor(spec).filter(d => fitted(spec, own.build, d.id) !== stockOption(spec, d.id)).map(d => `${d.name}: ${findOption(d.id, fitted(spec, own.build, d.id))?.name}`) : [];
     return `<div class="gr-ov">
-      <p>${own ? `You own this ${CATEGORY[spec.category]?.toLowerCase() ?? 'vehicle'}.` : `For sale: ${formatMoney(vehiclePrice(spec.id))}. Buy it to drive and modify it; it waits for you where it is parked.`}</p>
+      <p>${own ? `You own this ${CATEGORY[spec.category]?.toLowerCase() ?? 'vehicle'}.` : STORY_VEHICLES.has(spec.id) ? 'Your father\'s vehicle. Not for sale: Silas Crowe keeps it in the underground.' : `For sale: ${formatMoney(vehiclePrice(spec.id))}. Buy it to drive and modify it; it waits for you where it is parked.`}</p>
       <p class="gr-dim">${spec.drivetrain === 'part-time-4wd' ? 'Part-time 4WD with low range and lockers' : `Permanent ${spec.drivetrain.toUpperCase()}`} · ${spec.gears.length}-speed · ${spec.fuelCapacity} L tank</p>
       ${own ? `<p><b>Modifications</b><br>${fittedParts.length ? fittedParts.map(esc).join('<br>') : '<span class="gr-dim">Factory specification</span>'}</p>
       <p class="gr-dim">Spent on this vehicle: ${formatMoney(own.spent)} · resale value ${formatMoney(resaleValue(spec.id, own))}</p>` : ''}
@@ -195,7 +195,8 @@ export class GarageUI {
     let h = '';
     if (!own) {
       const p = vehiclePrice(spec.id);
-      h = `<button class="primary" data-act="buy" ${dis} ${p > c.cash ? 'disabled' : ''}>Buy for ${formatMoney(p)}</button>${p > c.cash ? `<span class="gr-dim">You need ${formatMoney(p - c.cash)} more</span>` : ''}`;
+      if (STORY_VEHICLES.has(spec.id)) h = '<span class="gr-dim">Recovered in the story\'s finale</span>';
+      else h = `<button class="primary" data-act="buy" ${dis} ${p > c.cash ? 'disabled' : ''}>Buy for ${formatMoney(p)}</button>${p > c.cash ? `<span class="gr-dim">You need ${formatMoney(p - c.cash)} more</span>` : ''}`;
     } else if (this.trial) {
       const p = partPrice(spec, this.trial.slot, this.trial.option, own), name = findOption(this.trial.slot, this.trial.option)?.name ?? '';
       h = `<button class="primary" data-act="fit" ${dis} ${p > c.cash ? 'disabled' : ''}>${p > 0 ? `Buy & fit ${esc(name)} · ${formatMoney(p)}` : `Fit ${esc(name)} · free`}</button><button data-act="cancel">Cancel</button>`;

@@ -194,6 +194,7 @@ export const SLOT_BY_ID = Object.fromEntries(SLOTS.map(s => [s.id, s])) as Recor
 const STOCK_FIT: Record<string, Partial<Record<SlotId, string>>> = {
   'ranger-tx4': { bullbar: 'tube', rack: 'expedition', lights: 'bar', steps: 'steps', snorkel: 'snorkel', tyres: 'all-terrain' },
   'bramble-rc2': { bullbar: 'tube', lights: 'bar', steps: 'sliders', tyres: 'all-terrain' },
+  'sovereign-x1': { bullbar: 'full', lights: 'pods', steps: 'sliders', snorkel: 'snorkel', tyres: 'all-terrain', shocks: 'long' },
   'vanta-gt': { spoiler: 'wing' },
 };
 

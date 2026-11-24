@@ -45,6 +45,46 @@
     <div id="wheels"><div class="w" id="w0"></div><div class="w" id="w1"></div><div class="w" id="w2"></div><div class="w" id="w3"></div><div id="wlabel">WHEEL LOAD / SLIP</div></div>
   </div>
   <div id="fps"></div>
+  <div id="objective" class="hidden">
+    <div id="obj-title"></div>
+    <div id="obj-text"></div>
+    <div id="obj-extra"></div>
+    <div id="obj-meter" class="hidden"><div id="obj-meter-label"></div><div class="bar"><div id="obj-meter-fill"></div></div></div>
+    <div id="obj-boss"></div>
+  </div>
+  <div id="banner" class="hidden"></div>
+</div>
+
+<div id="cutscene" class="hidden">
+  <div class="cs-bar top"><span id="cs-title"></span></div>
+  <div class="cs-bar bottom"><div id="cs-speaker"></div><div id="cs-line"></div><small>Space: next line · Esc: skip</small></div>
+</div>
+
+<div id="briefing" class="hidden overlay panel">
+  <div class="story-card">
+    <div id="br-chapter" class="kicker"></div>
+    <h2 id="br-title"></h2>
+    <div id="br-giver" class="muted"></div>
+    <p id="br-brief"></p>
+    <ul id="br-targets"></ul>
+    <div class="reward">Reward: <span id="br-reward"></span></div>
+    <div class="row"><button id="br-start" class="primary">Start (Y)</button><button id="br-cancel">Not now (Esc)</button></div>
+  </div>
+</div>
+
+<div id="mission-result" class="hidden">
+  <div id="res-head"></div>
+  <h2 id="res-title"></h2>
+  <p id="res-msg"></p>
+  <div class="row"><button id="res-ok" class="primary">Continue (Enter)</button><button id="res-retry">Retry</button></div>
+</div>
+
+<div id="journal" class="hidden overlay panel">
+  <div class="jr-wrap">
+    <div class="jr-head"><h2>Journal</h2><span id="jr-summary" class="muted"></span><button id="jr-close">Close (J)</button></div>
+    <div id="jr-tabs"><button data-tab="story">Story</button><button data-tab="missions">Missions</button><button data-tab="gangs">Gangs &amp; bounties</button><button data-tab="keys">Keys &amp; legends</button><button data-tab="challenges">Underground challenges</button></div>
+    <div id="jr-body"></div>
+  </div>
 </div>
 
 
@@ -52,7 +92,8 @@
   <h2>Controls</h2>
   <div class="cols">
     <div><h3>On foot</h3>
-      <p><b>W A S D</b> run · <b>Alt</b> hold to walk · <b>Shift</b> sprint<br><b>Space</b> jump · <b>C</b> crouch<br><b>E</b> interact: drive a vehicle, talk to people, open the garage in the camp shed<br><b>1 – 5</b> pick a reply in a conversation</p></div>
+      <p><b>W A S D</b> run · <b>Alt</b> hold to walk · <b>Shift</b> sprint<br><b>Space</b> jump · <b>C</b> crouch<br><b>E</b> interact: drive a vehicle, talk to people, open the garage in the camp shed<br><b>1 – 5</b> pick a reply in a conversation</p>
+      <h3>Story</h3><p><b>J</b> journal: story, missions, gangs and bounties, keys, challenges<br><b>Y</b> start a mission in its yellow beam · <b>Space</b> next line in a cutscene, <b>Esc</b> skip it<br>Talk to Ezra at camp to begin.</p></div>
     <div><h3>Driving</h3>
       <p><b>W / S</b> throttle / brake (hold S when stopped to reverse)<br><b>A / D</b> steer · <b>Space</b> handbrake<br>
       <b>C</b> driving mode: Normal / Sport / Off-road / Rock crawl / Snow / Mud (road cars: Normal / Sport / Snow)<br>
@@ -74,6 +115,7 @@
   <div class="travel"><span>Fast travel</span>
     <button id="btn-go-camp">Camp</button><button id="btn-go-city">Plain City</button><button id="btn-go-town">Millbrook</button><button id="btn-go-village">Ashby Hollow</button>
   </div>
+  <button id="btn-abandon" class="hidden">Abandon mission</button>
   <button id="btn-pause-map">World map</button>
   <button id="btn-settings">Settings</button>
   <button id="btn-help">Controls</button>
@@ -113,7 +155,7 @@
 
 <div id="menu" class="overlay hidden">
   <div class="title">OFF-ROAD<span>LEGENDS</span></div>
-  <div class="sub">Free roam · Redstone Valley</div>
+  <div class="sub">Story · Free roam · Redstone Valley</div>
   <button id="btn-continue" class="hidden">Continue</button>
   <button id="btn-new">New game</button>
   <button id="btn-character">Character</button>
@@ -121,10 +163,8 @@
   <button id="btn-garage">Garage</button>
   <button id="btn-map">World map</button>
   <button id="btn-menu-settings">Settings</button>
-  <div class="soon">
-    <button disabled title="Planned: Phase 5">Story mode · Phase 5</button>
-    <button disabled title="Planned: Phase 5">Challenges · Phase 5</button>
-  </div>
+  <button id="btn-story">Story mode</button>
+  <button id="btn-challenges">Underground challenges</button>
   <p id="menu-status" class="menu-note small"></p>
 </div>
 <script type="module" src="/src/main.ts"></script>

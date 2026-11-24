@@ -1,8 +1,9 @@
-import { VEHICLES, vehicleById } from '../vehicles/catalog';
+import { VEHICLES, vehicleById, STORY_VEHICLES } from '../vehicles/catalog';
 import type { VehicleSpec } from '../vehicles/spec';
 import type { PoiKind } from '../world/island';
 import { optionsFor, stockOption, findOption, SLOT_BY_ID, slotsFor, type SlotId } from './parts';
 import { defaultBuild, sanitizeBuild, fitted, FINISHES, LIVERIES, PAINT_PRICE, ACCENT_PRICE, type VehicleBuild } from './build';
+import { newStory, sanitizeStory, cloneStory, storyTransact, isStoryRequest, STORY_OPS, type StoryProgress, type StoryRequest } from '../story/progress';
 
 /**
  * The upgrade economy: what vehicles and parts cost, and the only functions allowed to change a player's money.
@@ -12,7 +13,7 @@ import { defaultBuild, sanitizeBuild, fitted, FINISHES, LIVERIES, PAINT_PRICE, A
 
 /** List prices in USD. */
 export const VEHICLE_PRICES: Record<string, number> = {
-  'ranger-tx4': 42000, 'bramble-rc2': 58000, pella: 14500, corvan: 23000, 'strix-r2': 49000, halcyon: 135000, 'vanta-gt': 210000, 'solenne-gt': 240000,
+  'ranger-tx4': 42000, 'bramble-rc2': 58000, pella: 14500, corvan: 23000, 'strix-r2': 49000, halcyon: 135000, 'vanta-gt': 210000, 'solenne-gt': 240000, 'sovereign-x1': 450000,
 };
 export const vehiclePrice = (id: string) => VEHICLE_PRICES[id] ?? 50000;
 /** Parts for dearer vehicles cost more (a GT's wheels cost more than a hatchback's). */
@@ -49,10 +50,12 @@ export interface Career {
   discovered: string[];
   /** lifetime totals */
   earned: number; spentTotal: number;
+  /** the campaign: missions, keys, legends, pages */
+  story: StoryProgress;
 }
 
 export function newCareer(): Career {
-  return { version: 1, cash: STARTING_CASH, owned: { [STARTER_VEHICLE]: { build: defaultBuild(), unlocked: [], spent: 0 } }, discovered: [], earned: 0, spentTotal: 0 };
+  return { version: 1, cash: STARTING_CASH, owned: { [STARTER_VEHICLE]: { build: defaultBuild(), unlocked: [], spent: 0 } }, discovered: [], earned: 0, spentTotal: 0, story: newStory() };
 }
 
 /** Repair a stored career (old, hand-edited or corrupt saves): unknown vehicles and parts are dropped, money is a finite integer ≥ 0. */
@@ -63,6 +66,7 @@ export function sanitizeCareer(raw: unknown): Career {
   const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : d);
   c.cash = num(o.cash, STARTING_CASH); c.earned = num(o.earned, 0); c.spentTotal = num(o.spentTotal, 0);
   if (Array.isArray(o.discovered)) c.discovered = [...new Set(o.discovered.filter((x): x is string => typeof x === 'string' && x.length < 64))];
+  c.story = sanitizeStory(o.story);
   if (o.owned && typeof o.owned === 'object') {
     const owned: Record<string, OwnedVehicle> = {};
     for (const [id, v] of Object.entries(o.owned as Record<string, unknown>)) {
@@ -74,6 +78,8 @@ export function sanitizeCareer(raw: unknown): Career {
       for (const [slot, opt] of Object.entries(build.parts)) if (!unlocked.includes(`${slot}:${opt}`)) delete build.parts[slot as SlotId];
       owned[id] = { build, unlocked: [...new Set(unlocked)], spent: num(ov.spent, 0) };
     }
+    // the Sovereign is only ever a story reward
+    if (owned['sovereign-x1'] && !c.story.core) delete owned['sovereign-x1'];
     if (Object.keys(owned).length) c.owned = owned;
   }
   return c;
@@ -117,7 +123,8 @@ export type GarageRequest =
   | { op: 'repair'; vid: string; damage: number }
   | { op: 'refuel'; litres: number }
   | { op: 'kits'; count: number }
-  | { op: 'discover'; poi: string };
+  | { op: 'discover'; poi: string }
+  | StoryRequest;
 export type GarageResult = { ok: true; career: Career; delta: number; msg: string } | { ok: false; error: string };
 
 /** Context the caller vouches for: where the player is (for discoveries) and which places exist. */
@@ -125,9 +132,11 @@ export interface GarageContext {
   pois?: readonly { id: string; name: string; kind: PoiKind; x: number; z: number }[];
   /** the player's position as the authority knows it */
   at?: { x: number; z: number };
+  /** the authority's clock (ms), for mission timing */
+  now?: number;
 }
 
-const clone = (c: Career): Career => ({ ...c, owned: Object.fromEntries(Object.entries(c.owned).map(([k, v]) => [k, { build: { ...v.build, parts: { ...v.build.parts } }, unlocked: [...v.unlocked], spent: v.spent }])), discovered: [...c.discovered] });
+const clone = (c: Career): Career => ({ ...c, owned: Object.fromEntries(Object.entries(c.owned).map(([k, v]) => [k, { build: { ...v.build, parts: { ...v.build.parts } }, unlocked: [...v.unlocked], spent: v.spent }])), discovered: [...c.discovered], story: cloneStory(c.story ?? newStory()) });
 const fail = (error: string): GarageResult => ({ ok: false, error });
 const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 
@@ -144,13 +153,14 @@ export function isGarageRequest(v: unknown): v is GarageRequest {
     case 'refuel': return num(o.litres);
     case 'kits': return num(o.count);
     case 'discover': return str(o.poi);
-    default: return false;
+    default: return STORY_OPS.has(o.op as string) && isStoryRequest(o);
   }
 }
 
 /** Apply one garage transaction. Returns the new career, or why it was refused; the input career is never modified. */
 export function transact(career: Career, req: GarageRequest, ctx: GarageContext = {}): GarageResult {
   const c = clone(career);
+  if (STORY_OPS.has(req.op)) return storyTransact(c, req as StoryRequest, ctx);
   const pay = (cost: number, msg: string): GarageResult => {
     if (!(cost >= 0) || !Number.isFinite(cost)) return fail('Not for sale');
     if (cost > c.cash) return fail(`Not enough money: ${money(cost)} needed, you have ${money(c.cash)}`);
@@ -161,6 +171,7 @@ export function transact(career: Career, req: GarageRequest, ctx: GarageContext 
     case 'buy-vehicle': {
       const spec = VEHICLES.find(s => s.id === req.vid); if (!spec) return fail('Unknown vehicle');
       if (c.owned[spec.id]) return fail(`You already own the ${spec.name}`);
+      if (STORY_VEHICLES.has(spec.id)) return fail(`The ${spec.name} is not for sale`);
       const r = pay(vehiclePrice(spec.id), `Bought the ${spec.name}`);
       if (r.ok) c.owned[spec.id] = { build: defaultBuild(), unlocked: [], spent: 0 };
       return r;
@@ -168,6 +179,7 @@ export function transact(career: Career, req: GarageRequest, ctx: GarageContext 
     case 'sell-vehicle': {
       const ov = c.owned[req.vid]; if (!ov) return fail('You do not own that vehicle');
       if (Object.keys(c.owned).length <= 1) return fail('You can not sell your only vehicle');
+      if (STORY_VEHICLES.has(req.vid)) return fail('Your father\'s vehicle is not for sale');
       const value = resaleValue(req.vid, ov);
       delete c.owned[req.vid]; c.cash += value; c.earned += value;
       return { ok: true, career: c, delta: value, msg: `Sold the ${vehicleById(req.vid).name} for ${money(value)}` };
@@ -228,6 +240,7 @@ export function transact(career: Career, req: GarageRequest, ctx: GarageContext 
       c.discovered.push(p.id); c.cash += reward; c.earned += reward;
       return { ok: true, career: c, delta: reward, msg: reward > 0 ? `Discovered ${p.name}: +${money(reward)}` : `Discovered ${p.name}` };
     }
+    default: return fail('Unknown request');
   }
 }
 

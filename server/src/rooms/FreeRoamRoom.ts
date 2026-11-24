@@ -2,7 +2,7 @@ import { Room, type Client } from '@colyseus/core';
 import { schema, t as ty, MapSchema } from '@colyseus/schema';
 import {
   Terrain, vehicleById, decodeAppearance, encodeAppearance, WORLD_SEED, LIMITS, MAX_PLAYERS_PER_ROOM, MESSAGE, isPlayerTransform, sanitizeChat,
-  newCareer, transact, isGarageRequest, encodeBuild, Ledger, type PlayerTransform, type Career,
+  newCareer, transact, inUnderground, UG_GATE_RADIUS, isGarageRequest, encodeBuild, Ledger, type PlayerTransform, type Career,
 } from '@orl/shared';
 import { validateMove, RateLimiter, type Accepted } from '../validation/movement';
 
@@ -28,7 +28,7 @@ export const getTerrain = () => (sharedTerrain ??= new Terrain(WORLD_SEED));
  * Per-session state. Online careers are server-owned: the client asks for a transaction and the server decides, using the
  * same catalogue prices as single-player. (They last for the session; persistent accounts arrive with Phase 6.)
  */
-interface Session { accepted: Accepted | null; limiter: RateLimiter; chat: RateLimiter; garage: RateLimiter; violations: number; career: Career; ledger: Ledger }
+interface Session { accepted: Accepted | null; limiter: RateLimiter; chat: RateLimiter; garage: RateLimiter; violations: number; career: Career; ledger: Ledger; warp?: 'ug-enter' | 'ug-exit' }
 
 /** Shared exploration room: players see each other's characters and vehicles; the server validates every update. */
 export class FreeRoamRoom extends Room {
@@ -60,8 +60,10 @@ export class FreeRoamRoom extends Room {
     if (!s.garage.allow(Date.now())) { client.send(MESSAGE.GARAGE_RESULT, { txn, ok: false, msg: 'Too many requests', career: s.career }); return; }
     if (!isGarageRequest(m.req)) { this.flag(client, s, 'bad_garage_request'); client.send(MESSAGE.GARAGE_RESULT, { txn, ok: false, msg: 'Invalid request', career: s.career }); return; }
     const req = m.req;
-    const r = s.ledger.run(m.txn, () => transact(s.career, req, { pois: this.terrain.outer.island.pois, at: s.accepted ?? undefined }));
+    const r = s.ledger.run(m.txn, () => transact(s.career, req, { pois: this.terrain.outer.island.pois, at: s.accepted ?? undefined, now: Date.now() }));
     if (r.ok) s.career = r.career;
+    // the underground gate moves the player to the far side of the world in one step: the next position starts a new track
+    if (r.ok && (req.op === 'ug-enter' || req.op === 'ug-exit')) { s.accepted = null; s.warp = req.op; }
     client.send(MESSAGE.GARAGE_RESULT, { txn, ok: r.ok, msg: r.ok ? r.msg : r.error, career: s.career });
     const p = (this.state as { players: MapSchema<PlayerInstance> }).players.get(client.sessionId);
     if (p) p.bld = this.buildCode(s, p.vid);
@@ -89,6 +91,12 @@ export class FreeRoamRoom extends Room {
     if (!s.limiter.allow(now)) { this.flag(client, s, 'rate_limited'); return; }
     if (!isPlayerTransform(msg)) { this.flag(client, s, 'malformed'); return; }
     const t = msg as PlayerTransform;
+    if (s.warp) {
+      // after the underground gate, the first position must be on the far side of it
+      const ug = inUnderground(t.x, t.z), gate = this.terrain.outer.island.pois.find(p => p.id === 'underground')!;
+      if (s.warp === 'ug-enter' ? !ug : ug || Math.hypot(t.x - gate.x, t.z - gate.z) > UG_GATE_RADIUS) { this.flag(client, s, 'warp'); return; }
+      s.warp = undefined;
+    }
     const verdict = validateMove(s.accepted, t, now, this.terrain);
     if (!verdict.ok) {
       this.flag(client, s, verdict.reason);

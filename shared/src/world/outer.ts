@@ -38,6 +38,11 @@ export interface OuterRoad {
   bridge: Uint8Array;
 }
 
+/** Map places that get a levelled building pad beside their road (the story's gang compounds and the underground entrance). */
+export const PAD_PLACES = ['gang-1', 'gang-camp', 'gang-3', 'gang-4', 'underground'];
+/** A levelled pad: flat to radius r, blended into the land over `blend` metres; `heading` faces the road. */
+export interface OuterPad { poi: string; x: number; z: number; y: number; r: number; blend: number; heading: number }
+
 export class OuterWorld {
   static readonly TILE = 128;
   static readonly CELL = 2;
@@ -56,6 +61,7 @@ export class OuterWorld {
   private noise = new Noise2D(31337);
   private rw: Record<RegionId, number> = { snow: 0, hill: 0, plain: 0, forest: 0 };
   private swamp: { x: number; z: number } | null;
+  readonly pads: OuterPad[] = [];
 
   constructor(readonly island: Island, readonly coreHalf: number) {
     const order = { highway: 0, road: 1, trail: 2 };
@@ -68,6 +74,44 @@ export class OuterWorld {
     const bl: [number, number][][] = [];
     this.roads.forEach((r, ri) => { for (let i = 0; i < r.pts.length - 1; i++) if (r.bridge[i] || r.bridge[i + 1]) { bl.push([r.pts[i], r.pts[i + 1]]); this.bridgeSegs.push({ road: ri, i }); } });
     this.bridgeIdx = new SegIndex(bl, 128, 16);
+    for (const id of PAD_PLACES) { const p = island.pois.find(q => q.id === id); if (p) { const pad = this.placePad(p.id, p.x, p.z); if (pad) this.pads.push(pad); } }
+  }
+
+  /**
+   * A pad beside the drivable road nearest a place: 70 to 100 m off the centreline on the side whose land is closer to the road's
+   * level, at the road's height, so a short level drive leads in.
+   */
+  private placePad(poi: string, x: number, z: number): OuterPad | null {
+    // the nearest stretch of road that is really at its graded level (a lesser road can be carved away where a
+    // greater road's cutting crosses it, leaving its line in the air)
+    const cands: { d: number; r: OuterRoad; i: number }[] = [];
+    for (const r of this.roads) for (let i = 0; i < r.pts.length; i++) { const d = Math.hypot(r.pts[i][0] - x, r.pts[i][1] - z); if (d < 2500) cands.push({ d, r, i }); }
+    if (!cands.length) return null;
+    cands.sort((a, b) => a.d - b.d);
+    const level = (r: OuterRoad, i: number) => Math.abs(this.groundAt(r.pts[i][0], r.pts[i][1]) - r.profile[i]) < 1.5;
+    const best = cands.find(c => [-3, -1, 0, 1, 3].every(k => { const j = Math.max(0, Math.min(c.r.pts.length - 1, c.i + k)); return level(c.r, j); })) ?? cands[0];
+    const { r, i } = best, a = r.pts[Math.max(0, i - 1)], b = r.pts[Math.min(r.pts.length - 1, i + 1)];
+    const tx = b[0] - a[0], tz = b[1] - a[1], tl = Math.hypot(tx, tz) || 1, nx = -tz / tl, nz = tx / tl;
+    const [rx, rz] = r.pts[i], ry = r.profile[i];
+    let pick: OuterPad | null = null, score = Infinity;
+    for (const side of [1, -1]) for (const off of [70, 85, 100]) {
+      const px = rx + nx * side * off, pz = rz + nz * side * off;
+      if (this.island.waterAt(px, pz) > -Infinity || this.island.coastDist(px, pz) < 120) continue;
+      // the side whose ground (as the roads already shaped it) is nearest the road's level
+      const hs = [[0, 0], [28, 0], [-28, 0], [0, 28], [0, -28]].map(([u, v]) => this.groundAt(px + u, pz + v));
+      const y = ry + 0.1; // level with the road, so the drive in is flat (the land behind is cut back)
+      const sc = hs.reduce((a, h) => a + Math.abs(h - y), 0) + off * 0.1;
+      if (sc < score) { score = sc; pick = { poi, x: px, z: pz, y, r: 36, blend: 26, heading: Math.atan2(rx - px, rz - pz) }; }
+    }
+    return pick;
+  }
+  /** The pad's pull on a sample: 1 on the pad, falling to 0 at the edge of its blend. */
+  private padAt(x: number, z: number): [number, number] {
+    for (const p of this.pads) {
+      const d = Math.hypot(x - p.x, z - p.z);
+      if (d < p.r + p.blend) return [1 - smoothstep(p.r, p.r + p.blend, d), p.y];
+    }
+    return [0, 0];
   }
 
   /** Inside the detailed valley (which has its own heightfield). */
@@ -182,6 +226,7 @@ export class OuterWorld {
         h = lerp(h, th, w);
       } else h = lerp(h, rh - 0.02, w);
     }
+    if (this.pads.length) { const [w, py] = this.padAt(x, z); if (w > 0) h = lerp(h, py, w); }
     return h;
   }
 
@@ -232,7 +277,9 @@ export class OuterWorld {
       const gx = (h[j * S + Math.min(i + 1, S - 1)] - h[j * S + Math.max(i - 1, 0)]) / ((Math.min(i + 1, S - 1) - Math.max(i - 1, 0)) * C);
       const gz = (h[Math.min(j + 1, S - 1) * S + i] - h[Math.max(j - 1, 0) * S + i]) / ((Math.min(j + 1, S - 1) - Math.max(j - 1, 0)) * C);
       const [s, m] = this.classify(x, z, h[k], Math.hypot(gx, gz));
-      surface[k] = s; mud[k] = m;
+      // building pads are gravelled
+      const pad = this.pads.length ? this.padAt(x, z)[0] : 0;
+      surface[k] = pad > 0.7 ? S_GRAVEL : s; mud[k] = pad > 0.3 ? 0 : m;
     }
     return { ti, tj, h, surface, mud, trees: this.scatter(ti, tj, (i, j) => h[j * S + i]), used: 0 };
   }
@@ -290,7 +337,7 @@ export class OuterWorld {
     for (let gj = 0; gj < 16; gj++) for (let gi = 0; gi < 16; gi++) {
       const gx = ti * 16 + gi, gz = tj * 16 + gj;
       const x = x0 + gi * 8 + hash(gx, gz, 1) * 8, z = z0 + gj * 8 + hash(gx, gz, 2) * 8;
-      if (this.inCore(x, z)) continue;
+      if (this.inCore(x, z) || this.padAt(x, z)[0] > 0.02) continue;
       const i = Math.min(S - 1, Math.round((x - x0) / C)), j = Math.min(S - 1, Math.round((z - z0) / C)), y = hs(i, j);
       const dens = this.treeDensity(x, z, y), w = this.rw;
       if (y > 2300 || y < 2.5) continue;

@@ -28,7 +28,7 @@ function play(fromSave: boolean) {
   app.newGame(fromSave);
   $('menu').classList.add('hidden'); $('hud').classList.remove('hidden');
   app.setPaused(false); app.start();
-  app.hud.toast(fromSave ? 'Save loaded' : 'Your Ranger waits at camp. The shed is the garage: buy vehicles and parts there (E or U). Every new place you find pays a reward');
+  app.hud.toast(fromSave ? 'Save loaded · J: journal' : 'Your Ranger waits at camp. Ezra by the fire knew your father: talk to him (E). J opens the journal');
 }
 
 // ---------- character creator ----------
@@ -64,6 +64,14 @@ $('btn-mp').addEventListener('click', async () => {
   else status.textContent = `Could not reach ${url}. Start one with "npm run dev:server", or set the address in Settings.`;
 });
 $('btn-map').addEventListener('click', () => app.toggleMap());
+// story and challenges: into the game (the save if there is one) with the journal open
+const story = (tab: 'missions' | 'challenges') => {
+  const go = () => { play(!!SaveGame.read()); app.openJournal(tab); };
+  if (CharacterStore.read()) go(); else openCreator(go);
+};
+$('btn-story').addEventListener('click', () => story('missions'));
+$('btn-challenges').addEventListener('click', () => story('challenges'));
+$('btn-abandon').addEventListener('click', () => { if (app.story.abandon()) app.hud.toast('Mission abandoned'); app.setPaused(false); });
 $('btn-garage').addEventListener('click', () => app.openGarage('Main menu'));
 $('btn-pause-map').addEventListener('click', () => app.toggleMap());
 $('btn-menu-settings').addEventListener('click', () => $('settings').classList.remove('hidden'));

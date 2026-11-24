@@ -271,3 +271,28 @@ export const SOLENNE_GT: VehicleSpec = {
   tireGrip: 1.0, tireLongStiffness: 14, tireLatStiffness: 13,
   intakeHeight: 0.15, fuelCapacity: 80,
 };
+
+/**
+ * "Sovereign X1" — Elias Kade's ultimate core vehicle (story): a hand-built expedition hypertruck on the Ranger's
+ * wagon body: twin-turbo V8, armoured shell, long-travel suspension and huge tyres. Not for sale: the master
+ * gangster drives it, and beating him gives it back.
+ */
+export const SOVEREIGN_X1: VehicleSpec = {
+  ...RANGER_TX4,
+  id: 'sovereign-x1',
+  name: 'Sovereign X1',
+  category: 'luxury',
+  description: 'Your father\'s core vehicle. Armoured twin-turbo hypertruck: crawls like a crawler, runs like a GT.',
+  damageResistance: 2.2,
+  look: { style: 'wagon', paint: [0.03, 0.03, 0.035], accent: [0.78, 0.6, 0.2], snorkel: true, seat: [0.42, 0.18, -0.38] },
+  mass: 2350,
+  inertia: [3900, 4500, 1400],
+  wheelRadius: 0.47, wheelWidth: 0.34, wheelInertia: 2.8,
+  restLength: 0.86, maxTravel: 0.62,
+  springRate: 26000, bumpDamping: 3200, reboundDamping: 4400, antiRoll: 9000,
+  torqueCurve: [[600, 260], [1000, 480], [1600, 760], [2200, 880], [3400, 880], [4400, 800], [5400, 680], [6000, 520], [6400, 380]],
+  idleRpm: 800, redlineRpm: 6200, engineInertia: 0.26,
+  gears: [4.2, 2.6, 1.75, 1.3, 1.0, 0.82, 0.68], finalDrive: 3.9, lowRange: 2.9,
+  brakeTorqueFront: 4600, brakeTorqueRear: 3000, handbrakeTorque: 4800,
+  tireGrip: 1.08, intakeHeight: 0.4, fuelCapacity: 110,
+};

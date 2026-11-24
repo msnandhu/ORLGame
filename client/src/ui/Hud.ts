@@ -7,6 +7,12 @@ export class Hud {
   readonly mapImg: HTMLCanvasElement;
   /** map marker the player is heading to (set by the world map) */
   waypoint: { x: number; z: number; id: number } | null = null;
+  /** the story's current objective (wins over the map marker) */
+  target: { x: number; z: number; label: string } | null = null;
+  /** mission vehicles on the minimap */
+  blips: { x: number; z: number; color: string }[] = [];
+  /** underground: no island map under the minimap */
+  dark = false;
   /** island imagery around the player (from the world map), drawn under the valley's own map */
   outerImg: { canvas: HTMLCanvasElement; x0: number; z0: number; x1: number; z1: number } | null = null;
   private mini = ($('minimap') as HTMLCanvasElement).getContext('2d')!;
@@ -79,15 +85,17 @@ export class Hud {
     $('foot-hud').classList.toggle('hidden', s.inVehicle);
     ($('stamina-fill') as HTMLElement).style.width = `${s.stamina * 100}%`;
     if (s.inVehicle) this.drawVehicle(s.v);
-    const wp = $('waypoint');
-    if (this.waypoint) {
-      const dx = this.waypoint.x - s.px, dz = this.waypoint.z - s.pz, d = Math.hypot(dx, dz);
+    const wp = $('waypoint'), goal = this.goal();
+    if (goal) {
+      const dx = goal.x - s.px, dz = goal.z - s.pz, d = Math.hypot(dx, dz);
       const brg = ((Math.atan2(dx, -dz) * 180 / Math.PI) + 360) % 360, rel = ((brg - bearing + 540) % 360) - 180;
-      wp.textContent = `${rel < -20 ? '◀ ' : ''}Marker ${this.waypoint.id} · ${d >= 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m'}${rel > 20 ? ' ▶' : ''}`;
+      wp.textContent = `${rel < -20 ? '◀ ' : ''}${goal.label} · ${d >= 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m'}${rel > 20 ? ' ▶' : ''}`;
+      wp.classList.toggle('story', !!this.target);
       wp.classList.remove('hidden');
     } else wp.classList.add('hidden');
   }
 
+  private goal() { return this.target ?? (this.waypoint ? { x: this.waypoint.x, z: this.waypoint.z, label: `Marker ${this.waypoint.id}` } : null); }
   private drawMini(px: number, pz: number, bearing: number, vx: number, vz: number, inVeh: boolean) {
     const ctx = this.mini, t = this.terrain, W = 200, range = 260; // metres across
     const scale = this.mapImg.width / t.size; // image px per metre
@@ -100,17 +108,20 @@ export class Hud {
     ctx.scale(k / scale, k / scale);
     ctx.translate(-(px + t.half) * scale, -(pz + t.half) * scale);
     const o = this.outerImg;
-    if (o) ctx.drawImage(o.canvas, (o.x0 + t.half) * scale, (o.z0 + t.half) * scale, (o.x1 - o.x0) * scale, (o.z1 - o.z0) * scale);
-    ctx.drawImage(this.mapImg, 0, 0);
+    if (this.dark) { ctx.fillStyle = '#16181a'; ctx.fillRect(-1e5, -1e5, 2e5, 2e5); }
+    else if (o) ctx.drawImage(o.canvas, (o.x0 + t.half) * scale, (o.z0 + t.half) * scale, (o.x1 - o.x0) * scale, (o.z1 - o.z0) * scale);
+    if (!this.dark) ctx.drawImage(this.mapImg, 0, 0);
     // fuel pump & vehicle markers
     const pt = (x: number, z: number) => [(x + t.half) * scale, (z + t.half) * scale];
     ctx.fillStyle = '#ff4a3a';
     for (const p of t.fuelPumps) { const [fx, fz] = pt(p.x, p.z); ctx.fillRect(fx - 2, fz - 2, 4, 4); }
     if (!inVeh) { const [a, b] = pt(vx, vz); ctx.fillStyle = '#fff'; ctx.fillRect(a - 2.5, b - 2.5, 5, 5); }
+    for (const bl of this.blips) { const [a, b] = pt(bl.x, bl.z); ctx.fillStyle = bl.color; ctx.beginPath(); ctx.arc(a, b, 3.5 * scale / k, 0, Math.PI * 2); ctx.fill(); }
     ctx.restore();
     // map marker: on the minimap when in range, otherwise pinned to the rim in its direction
-    if (this.waypoint) {
-      const dx = this.waypoint.x - px, dz = this.waypoint.z - pz, a = -bearing * Math.PI / 180;
+    const goal = this.goal();
+    if (goal) {
+      const dx = goal.x - px, dz = goal.z - pz, a = -bearing * Math.PI / 180;
       let sx = (dx * Math.cos(a) - dz * Math.sin(a)) * (W / range), sy = (dx * Math.sin(a) + dz * Math.cos(a)) * (W / range);
       const r = Math.hypot(sx, sy), lim = W / 2 - 9; if (r > lim) { sx *= lim / r; sy *= lim / r; }
       ctx.fillStyle = '#ffd23a'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;

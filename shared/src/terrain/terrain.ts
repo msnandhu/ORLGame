@@ -1,6 +1,8 @@
 import { OuterWorld } from '../world/outer';
 import { Island } from '../world/island';
 import { Noise2D, mulberry32, clamp, lerp, smoothstep } from '../math/noise';
+import { Underground, UG_X0 } from '../story/underground';
+import { buildCompounds, type Compound } from '../story/compounds';
 import { ROAD_DEFS, SETTLEMENTS, buildRoad, planSettlements, type Road, type Settlement, type Building, type Lot, type ParkingSpot } from '../world/layout';
 
 export enum Surface { Grass = 0, Dirt = 1, Mud = 2, Rock = 3, Gravel = 4, Asphalt = 5, Snow = 6, Sand = 7, Ice = 8 }
@@ -23,6 +25,10 @@ export function sharedOuterWorld(coreHalf = 1280): OuterWorld {
   if (!_outer || _outer.coreHalf !== coreHalf) _outer = new OuterWorld(new Island(), coreHalf);
   return _outer;
 }
+
+let _ug: Underground | null = null;
+/** One underground per process (it is fixed data); its gates are per-world state, so tests that open gates should close them. */
+export function sharedUnderground(): Underground { return (_ug ??= new Underground()); }
 
 export class Terrain {
   readonly size = 2560;          // metres per side
@@ -56,6 +62,12 @@ export class Terrain {
 
   /** The island beyond the valley (shared by every Terrain: it is a pure function of position). */
   readonly outer: OuterWorld;
+  /** The underground world (its own patch of coordinates beyond the island, x > UG_X0). */
+  readonly underground: Underground;
+  /** Gang compounds built on the island (story). */
+  readonly compounds: Compound[];
+  /** collider index of each underground gate, and whether it is open (per world: gates are story state) */
+  ugGateBoxes: number[] = []; gateOpen: boolean[] = [];
 
   constructor(seed = 20261123) {
     this.outer = sharedOuterWorld(this.size / 2);
@@ -208,6 +220,15 @@ export class Terrain {
     this.scatter(seed);
     this.buildCamp();
     this.buildSettlements(seed);
+    // story: the underground's rocks, props and gates, and the gang compounds on the island
+    this.underground = sharedUnderground();
+    const ug = this.underground;
+    for (const b of ug.boulders) this.add({ ...b }, 'b');
+    for (const p of ug.props) if (p.h > 0.5) this.boxes.push({ kind: `ug-${p.kind}`, cx: p.x, cy: p.y + p.h / 2, cz: p.z, hx: p.w / 2, hy: p.h / 2, hz: p.d / 2, yaw: p.yaw });
+    this.ugGateBoxes = ug.gates.map(g => { this.boxes.push({ kind: 'ug-gate', cx: g.x, cy: ug.heightAt(g.x, g.z) + 5, cz: g.z, hx: g.w / 2, hy: 5.5, hz: 0.7, yaw: g.yaw }); return this.boxes.length - 1; });
+    this.gateOpen = ug.gates.map(() => false);
+    this.compounds = buildCompounds(this.outer);
+    for (const c of this.compounds) for (const b of c.boxes) this.boxes.push(b);
     this.boxes.forEach((_, i) => this.indexBox(i));
   }
 
@@ -351,6 +372,12 @@ export class Terrain {
       for (let cz = Math.floor((b.cz - r) / this.bcell); cz <= Math.floor((b.cz + r) / this.bcell); cz++) {
         const k = this.bkey(cx, cz); let l = this.boxGrid.get(k); if (!l) { l = []; this.boxGrid.set(k, l); } l.push(i);
       }
+  }
+  /** Open or close an underground gate (its collider drops out of reach when open). */
+  setGate(i: number, open: boolean) {
+    const ug = this.underground, g = ug.gates[i], b = this.boxes[this.ugGateBoxes[i]];
+    if (!g || !b) return;
+    this.gateOpen[i] = open; b.cy = ug.heightAt(g.x, g.z) + (open ? -60 : 5);
   }
   /** Rebuild the static box index after `boxes` was edited (tests, editors). */
   reindexBoxes() { this.boxGrid.clear(); this.boxes.forEach((_, i) => this.indexBox(i)); }
@@ -523,7 +550,7 @@ export class Terrain {
   /** Obstacles whose bounds overlap the circle (x,z,r). */
   query(x: number, z: number, r: number, outB: Set<number>, outT: Set<number>) {
     outB.clear(); outT.clear();
-    if (Math.abs(x) + r > this.half || Math.abs(z) + r > this.half) {
+    if ((Math.abs(x) + r > this.half || Math.abs(z) + r > this.half) && x < UG_X0) {
       const T = OuterWorld.TILE;
       for (let ti = Math.floor((x - r) / T); ti <= Math.floor((x + r) / T); ti++) for (let tj = Math.floor((z - r) / T); tj <= Math.floor((z + r) / T); tj++) {
         if (Math.abs((ti + 0.5) * T) < this.half && Math.abs((tj + 0.5) * T) < this.half) continue;
@@ -543,17 +570,18 @@ export class Terrain {
 
   /** Keep a point inside the playable world (the island and its sea margin), with a pad in metres. */
   clampToWorld(p: { x: number; z: number }, pad = 0) {
+    if (p.x > UG_X0) { const R = this.underground.rect; p.x = clamp(p.x, R.x0 + pad, R.x1 - pad); p.z = clamp(p.z, R.z0 + pad, R.z1 - pad); return; }
     const I = this.outer.island;
     p.x = clamp(p.x, I.minX + 200 + pad, I.maxX - 200 - pad); p.z = clamp(p.z, I.minZ + 200 + pad, I.maxZ - 200 - pad);
   }
   /** Inside the island's bounds (the sea around it included). */
-  inBounds(x: number, z: number) { const I = this.outer.island; return x > I.minX + 200 && x < I.maxX - 200 && z > I.minZ + 200 && z < I.maxZ - 200; }
+  inBounds(x: number, z: number) { if (x > UG_X0) return this.underground.contains(x, z); const I = this.outer.island; return x > I.minX + 200 && x < I.maxX - 200 && z > I.minZ + 200 && z < I.maxZ - 200; }
   /** Inside the detailed valley (its own heightfield); outside it, samples come from the island's tiles. */
   inCore(x: number, z: number) { return Math.abs(x) < this.half && Math.abs(z) < this.half; }
 
   /** Height using the same triangle split as the rendered mesh. */
   heightAt(x: number, z: number): number {
-    if (!this.inCore(x, z)) return this.outer.heightAt(x, z);
+    if (!this.inCore(x, z)) return x > UG_X0 ? this.underground.heightAt(x, z) : this.outer.heightAt(x, z);
     const N = this.n;
     const fx = clamp((x + this.half) / this.cell, 0, N - 1.0001);
     const fz = clamp((z + this.half) / this.cell, 0, N - 1.0001);
@@ -567,7 +595,7 @@ export class Terrain {
   }
 
   normalAt(x: number, z: number): [number, number, number] {
-    if (!this.inCore(x, z)) return this.outer.normalAt(x, z);
+    if (!this.inCore(x, z)) return x > UG_X0 ? this.underground.normalAt(x, z) : this.outer.normalAt(x, z);
     const N = this.n;
     const fx = clamp((x + this.half) / this.cell, 0, N - 1.0001);
     const fz = clamp((z + this.half) / this.cell, 0, N - 1.0001);
@@ -589,10 +617,10 @@ export class Terrain {
     const j = clamp(Math.round((z + this.half) / this.cell), 0, N - 1);
     return j * N + i;
   }
-  surfaceAt(x: number, z: number): Surface { return this.inCore(x, z) ? this.surface[this.idx(x, z)] : this.outer.surfaceAt(x, z) as Surface; }
-  mudAt(x: number, z: number): number { return this.inCore(x, z) ? this.mudDepth[this.idx(x, z)] : this.outer.mudAt(x, z); }
+  surfaceAt(x: number, z: number): Surface { return this.inCore(x, z) ? this.surface[this.idx(x, z)] : (x > UG_X0 ? this.underground.surfaceAt(x, z) : this.outer.surfaceAt(x, z)) as Surface; }
+  mudAt(x: number, z: number): number { return this.inCore(x, z) ? this.mudDepth[this.idx(x, z)] : x > UG_X0 ? this.underground.mudAt(x, z) : this.outer.mudAt(x, z); }
   /** Water surface height here: the valley's river level, or the island's sea, lakes and rivers (-Infinity where dry). */
-  waterAt(x: number, z: number): number { return this.inCore(x, z) ? this.waterLevel : this.outer.waterAt(x, z); }
+  waterAt(x: number, z: number): number { return this.inCore(x, z) ? this.waterLevel : x > UG_X0 ? this.underground.waterAt(x, z) : this.outer.waterAt(x, z); }
   waterDepthAt(x: number, z: number): number { return Math.max(0, this.waterAt(x, z) - this.heightAt(x, z)); }
   /** Tree by index from `query`: the valley's trees, then trees of the island tiles (stable ids per tile). */
   treeAt(i: number): Tree {

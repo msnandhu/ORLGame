@@ -33,6 +33,8 @@ export class Input {
   }
   isDown(code: string) { return this.down.has(code); }
   wasPressed(code: string) { return this.pressed.has(code); }
+  /** a key used by one system is not seen by the others this frame */
+  consume(code: string) { this.pressed.delete(code); }
   axis(neg: string[], pos: string[]) { return (pos.some(c => this.down.has(c)) ? 1 : 0) - (neg.some(c => this.down.has(c)) ? 1 : 0); }
 
   pollGamepad() {

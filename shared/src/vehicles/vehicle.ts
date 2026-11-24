@@ -677,6 +677,15 @@ export class Vehicle {
     this.onImpact?.({ point: lp.clone(), severity: sev, part: region, wheel: -1 });
   }
 
+  /**
+   * A hit from outside the vehicle's own contacts (another vehicle ramming it): `local` is the struck point in the
+   * vehicle's frame and `speed` the closing speed in m/s. Below IMPACT_THRESHOLD nothing happens.
+   */
+  externalImpact(local: Vec3, speed: number) {
+    if (speed <= IMPACT_THRESHOLD || this.impactGrace > 0) return;
+    this.registerImpact(local, speed);
+  }
+
   /** Penalty contact with Coulomb friction. */
   private contactForce(p: Vec3, n: Vec3, pen: number, mu: number) {
     const b = this.body;

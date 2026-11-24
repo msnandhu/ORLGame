@@ -77,7 +77,10 @@ describe('island terrain beyond the valley', () => {
 
   it('keeps players inside the world: the sea margin, not the old valley edge', () => {
     const p = { x: 5000, z: -9000 }; t.clampToWorld(p); expect(p).toEqual({ x: 5000, z: -9000 });
-    const q = { x: 1e6, z: -1e6 }; t.clampToWorld(q);
-    expect(q.x).toBe(t.outer.island.maxX - 200); expect(q.z).toBe(t.outer.island.minZ + 200);
+    const q = { x: -1e6, z: -1e6 }; t.clampToWorld(q);
+    expect(q.x).toBe(t.outer.island.minX + 200); expect(q.z).toBe(t.outer.island.minZ + 200);
+    // far east is the underground's own space (Phase 5): it clamps to the caverns' rectangle instead
+    const u = { x: 1e6, z: -1e6 }; t.clampToWorld(u); const R = t.underground.rect;
+    expect(u.x).toBe(R.x1); expect(u.z).toBe(R.z0);
   });
 });

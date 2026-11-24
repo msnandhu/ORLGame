@@ -274,3 +274,4 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .key.held { border: 1px solid #f0c040; background: rgba(240,192,64,0.12); }
 #waypoint.story { border-left: 3px solid #f0c040; }
 @media (max-width: 700px) { #objective { width: calc(100vw - 240px); min-width: 160px; font-size: 13px; } #jr-body td:nth-child(2) { display: none; } #cs-line { font-size: 16px; } }
+#hud.cinema > * { visibility: hidden; }

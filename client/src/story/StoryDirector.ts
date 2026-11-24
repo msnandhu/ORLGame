@@ -277,7 +277,7 @@ export class StoryDirector {
     this.offerPages(p.x, p.z, list, story);
     this.offerUnderground(p.x, p.z, list, story);
     if (this.below) this.repairBays(p.x, p.z);
-    this.markers.update(list, dt);
+    const cp = H.rig.camera.position; this.markers.update(list, dt, { x: cp.x, z: cp.z });
     this.syncGates();
     // cutscene camera
     return this.cutscenes.update(dt);

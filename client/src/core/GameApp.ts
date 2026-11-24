@@ -905,6 +905,8 @@ export class GameApp {
   /** Briefings, the journal and cutscenes hold the controls; the journal and briefing free the mouse. */
   private setControlLock(on: boolean) {
     this.controlLock = on;
+    // a cutscene or briefing takes over from a conversation (Ezra's story line ends in one)
+    if (on && this.dialogue) this.closeDialogue();
     if (on && (this.story?.ui.journalOpen || this.story?.ui.briefingOpen)) { document.exitPointerLock?.(); this.input.allowLock = false; }
     else if (!on) this.input.allowLock = !this.dialogue && !this.garageOpen;
   }

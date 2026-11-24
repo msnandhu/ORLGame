@@ -22,7 +22,7 @@ export class CutscenePlayer {
   play(c: Cutscene, subjects: CutsceneSubjects): Promise<void> {
     this.stop();
     this.active = c; this.subjects = subjects; this.shot = -1;
-    $('cutscene').classList.remove('hidden');
+    $('cutscene').classList.remove('hidden'); $('hud').classList.add('cinema');
     $('cs-title').textContent = c.title;
     this.canvas.style.filter = c.flashback ? 'sepia(0.75) contrast(1.05) brightness(0.95)' : '';
     this.next();
@@ -52,7 +52,7 @@ export class CutscenePlayer {
   }
   stop() {
     this.active = null; this.done = null;
-    $('cutscene').classList.add('hidden');
+    $('cutscene').classList.add('hidden'); $('hud').classList.remove('cinema');
     this.canvas.style.filter = '';
     try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch { /* ignore */ }
   }

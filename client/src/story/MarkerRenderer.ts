@@ -45,7 +45,8 @@ export class MarkerRenderer {
     return m;
   }
 
-  update(list: WorldMarker[], dt: number) {
+  /** cam: beams fade out as the camera comes close, so driving into one doesn't tint the screen */
+  update(list: WorldMarker[], dt: number, cam?: { x: number; z: number }) {
     this.t += dt;
     const used = new Map<Kind, number>();
     const T = this.terrain;
@@ -57,7 +58,12 @@ export class MarkerRenderer {
       const y = T.heightAt(mk.x, mk.z);
       m.rotation.set(0, 0, 0); m.scaling.set(1, 1, 1);
       switch (k) {
-        case 'goal': case 'start': case 'exit': m.position.set(mk.x, y + 30, mk.z); m.scaling.set(mk.r / 3, 1, mk.r / 3); break;
+        case 'goal': case 'start': case 'exit': {
+          m.position.set(mk.x, y + 30, mk.z); m.scaling.set(mk.r / 3, 1, mk.r / 3);
+          const d = cam ? Math.hypot(cam.x - mk.x, cam.z - mk.z) : 1e9;
+          m.visibility = Math.max(0, Math.min(1, (d - mk.r * 0.8) / 30));
+          break;
+        }
         case 'checkpoint': case 'next': case 'zone': {
           // a ring standing across the course for checkpoints; a ring on the ground for zones
           const d = k === 'zone' ? mk.r : Math.min(mk.r, 12);

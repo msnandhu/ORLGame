@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.0: Phase 5, the story engine
+
+- **The campaign.** Talk to Ezra Holloway at base camp to begin. You are the son of Elias Kade, who once ruled the island's surface and its underground, until his partner Silas Crowe betrayed him. Two flashback cutscenes tell that story; six of his journal pages, hidden beside towns and places across the island, tell the rest (each pays $3,000). 24 surface missions in a prologue and four gang chapters, the descent, 21 underground challenges and the finale: 47 missions in all.
+- **Four gangs, every member a person.** The Cragjaws (13 members, Hill Region rock), the Dune Vipers (9, the dry Plain Region), Frostline (6, Snow Region) and the Bog Kings (17, Deep Forest), 45 gangsters and four leaders. Each has a name, nickname, role (scout, driver, enforcer, lookout, mechanic, tracker, bruiser, runner, smuggler, lieutenant), difficulty, bounty, vehicle, look, driving behaviour, territory and the missions they appear in. Leaders carry a $250,000 bounty, hold one of the four underground keys and one of your father's legendary vehicles. Silas Crowe's bounty is $1,000,000. The journal (J) lists them all with their status.
+- **Missions that are really played.** Gang members drive real simulated vehicles with AI drivers: chases, takedowns (damage comes from real contact impacts: side and rear hits count more, armoured fronts less), races against rivals, escorts, survival, pickups, pylon runs, precision courses, slaloms, searchlight escapes and boss fights with health bars. Objectives show on a HUD panel, the minimap marks enemies, and you can fail by wrecking, leaving the area or running out of time, then retry.
+- **Keys and legendary vehicles.** Beating a leader gives you their key and your father's build of a legendary vehicle (Summit King, Sand Viper, Frost Titan, Bog Monarch) as an owned vehicle in your garage, with its parts fitted.
+- **The underground.** With all four keys, the gate beside the Snow Region highway takes you down into a cave system of 26 halls: 21 challenge halls behind gates that open as you win, three repair bays (free repair and fuel), and Crowe's throne hall. Caves are lit by lamps and your headlights. Beat Crowe in the finale to recover the Sovereign X1, your father's vehicle (not for sale).
+- **Gang compounds** with walls, sheds, containers, watchtowers, flags and gate barriers in each territory, with guards until their leader falls.
+- **Cutscenes** with letterbox bars, subtitles, voices from the browser's speech synthesis and an orbiting camera (Space for the next line, Esc to skip).
+- **Server-checked rewards.** Online, the server checks that a mission is unlocked and running, that you are in its area and took a plausible time, pays each bounty once (replays pay nothing), and approves the jump into and out of the underground.
+- **Menus.** Story mode and Underground challenges on the main menu open the journal, and the pause menu can abandon a mission.
+- Honest limits: see the story notes under Known limitations in `documentation/architecture.md`.
+
 ## 0.11.1: Better body structure for the two leads
 
 - **Arms hang naturally.** The idle and talk poses had the arms turned inward, so the hands met in front of the hips. The arms now hang at the sides with a slight bend, and jumping and climbing spread them outward as intended. The feet stand a little apart.

@@ -123,7 +123,7 @@ const add = (m: MissionDef) => { MISSIONS.push(m); return m; };
 add({ id: 'p1-legacy', chapter: 'prologue', title: 'The Last Legend', giver: 'Ezra Holloway', onFoot: true,
   brief: 'An old man has been watching your Ranger at camp. He says he knew your father.',
   requires: [], start: { at: 'poi', poi: 'base-camp', dx: 8, dz: -9 }, phases: [{ kind: 'talk', npc: 'ezra-holloway', text: 'Talk to Ezra Holloway at base camp' }],
-  enemies: [], defeats: [], reward: 2500, outro: 'flashback-empire', minTime: 5, journal: 'legacy' });
+  enemies: [], defeats: [], reward: 2500, outro: 'flashback-empire', minTime: 0, journal: 'legacy' });
 add({ id: 'p2-footsteps', chapter: 'prologue', title: 'Father\'s Footsteps', giver: 'Ezra Holloway',
   brief: 'Elias Kade hid his journal in pages across the valley before the betrayal. Find three of them: in Plain City, in Millbrook and in Ashby Hollow.',
   requires: ['p1-legacy'], start: { at: 'poi', poi: 'base-camp', dx: 8, dz: -9 },

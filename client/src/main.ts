@@ -28,7 +28,7 @@ function play(fromSave: boolean) {
   app.newGame(fromSave);
   $('menu').classList.add('hidden'); $('hud').classList.remove('hidden');
   app.setPaused(false); app.start();
-  app.hud.toast(fromSave ? 'Save loaded · J: journal' : 'Your Ranger waits at camp. Ezra by the fire knew your father: talk to him (E). J opens the journal');
+  app.hud.toast(fromSave ? 'Save loaded · J: journal' : 'Your Ranger waits at camp. Ezra, by the track at camp, knew your father: talk to him (E). J opens the journal');
 }
 
 // ---------- character creator ----------

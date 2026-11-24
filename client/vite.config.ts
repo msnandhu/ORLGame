@@ -12,6 +12,6 @@ export default defineConfig(({ mode }) => ({
     assetsInlineLimit: mode === 'single' ? 64 * 1024 * 1024 : 4096,
     // the normal build also ships the vehicle showroom page (showroom.html)
     rollupOptions: mode === 'single' ? { output: { inlineDynamicImports: true } }
-      : { input: { main: fileURLToPath(new URL('./index.html', import.meta.url)), showroom: fileURLToPath(new URL('./showroom.html', import.meta.url)) } },
+      : { input: { main: fileURLToPath(new URL('./index.html', import.meta.url)), showroom: fileURLToPath(new URL('./showroom.html', import.meta.url)), characters: fileURLToPath(new URL('./characters.html', import.meta.url)) } },
   },
 }));

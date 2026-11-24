@@ -26,11 +26,17 @@ describe('character appearance (customization data)', () => {
   it('round-trips every default through the network code', () => {
     for (const a of [DEFAULT_MALE, DEFAULT_FEMALE]) {
       const code = encodeAppearance(a);
-      expect(code).toMatch(/^[mf][0-9]{4}[0-9a-z]{14}$/);
+      expect(code).toMatch(/^[mf][0-9]{4}[0-9a-z]{15}$/);
       const b = decodeAppearance(code);
       expect({ ...b, height: Math.round(b.height * 99), build: Math.round(b.build * 99) })
         .toEqual({ ...a, height: Math.round(a.height * 99), build: Math.round(a.build * 99) });
     }
+  });
+  it('still reads codes from before outfit variants (no variant digit)', () => {
+    const old = decodeAppearance('m504521001100100141');
+    expect(old.variant).toBe(0);
+    expect(old.hair).toBe(decodeAppearance('m5045210011001001410').hair);
+    for (let v = 0; v < 4; v++) expect(decodeAppearance(encodeAppearance({ ...DEFAULT_FEMALE, variant: v })).variant).toBe(v);
   });
   it('round-trips 200 random looks, covering every option list', () => {
     const rnd = lcg(7), seen = { hair: new Set<string>(), top: new Set<string>(), head: new Set<string>(), beard: new Set<string>(), acc: new Set<string>() };

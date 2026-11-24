@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0: New player characters
+
+- **Two new lead characters built from the concept sheets.** The male lead (180 cm) has curly dark hair, a short beard, aviators, a red bandana, an open brown trail jacket with red piping and mountain patches over a dark tee, dark cargo pants with a thigh holster and pouches, fingerless gloves, a watch, laced boots and a tan pack with a bedroll, radio and water bottle. The female lead (168 cm) has a dark ponytail with a red tie, aviators, a red bandana, a red leather cropped jacket over a crop top, olive cargo pants with tan thigh pouches and straps, fingerless gloves, boots with red laces and a tan pack with a sleeping mat. They are the creator's male and female defaults. A saved character that was still the old default switches to the new lead; customised characters are kept.
+- **Outfit variants.** The trail jacket and crop jacket come in Classic, Yellow, Arctic and Camo (Clothing tab, Outfit row). Other players see your variant in multiplayer (one extra character in the look code; old codes still read).
+- **New character renderer.** Every character is now one skinned mesh on a 17-bone skeleton driven by the existing animations, with layered clothing, hair shells, a painted face, procedural fabric, leather, skin and hair textures with normal maps, and PBR materials. The ponytail swings on a spring. The hoodie, flannel, vest, tee, headwear and other creator options are rebuilt on the same system.
+- **Cheaper to draw.** A character used to be about 50 separate meshes. Now it is 10 draw calls up close, then one merged mesh beyond 14 m (about 8k vertices) and one beyond 45 m (about 3k), and it is hidden past 260 m. In the same scene the game draws 45 fewer meshes per frame than 0.10.2, and frame render time on the test machine was 31.8 to 33.7 ms against 34.5 to 38.8 ms. Driving and on-foot physics are unchanged.
+- Honest limits: the characters are generated in code, not sculpted and hand-painted like the concept art, so faces, hair and cloth folds are simpler than the sheets.
+
 ## 0.10.2: Black screen on WebGPU
 
 - On some GPUs the WebGPU renderer drew nothing but the HUD. WebGL2 is the renderer again for everyone (the saved WebGPU choice is cleared once), and WebGPU is labelled experimental in Settings.

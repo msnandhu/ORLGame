@@ -1,6 +1,6 @@
 import {
   HAIR_STYLES, BEARD_STYLES, FACE_SHAPES, TOP_STYLES, BOOT_STYLES, GLOVE_STYLES, HEADWEAR, ACCESSORIES,
-  SKIN_TONES, HAIR_COLORS, CLOTH_COLORS, EYE_COLORS, DEFAULT_MALE, DEFAULT_FEMALE, sanitizeAppearance, randomAppearance, statureOf,
+  OUTFIT_VARIANTS, SKIN_TONES, HAIR_COLORS, CLOTH_COLORS, EYE_COLORS, DEFAULT_MALE, DEFAULT_FEMALE, sanitizeAppearance, randomAppearance, statureOf,
   type CharacterAppearance, type Accessory,
 } from '@orl/shared';
 
@@ -63,7 +63,9 @@ export class CharacterCreator {
       if (a.body === 'male') seg('beard', 'Beard', BEARD_STYLES);
     } else if (this.tab === 2) {
       seg('top', 'Top', TOP_STYLES);
-      swatch('topColor', 'Top colour', CLOTH_COLORS);
+      if (a.top === 'trail-jacket' || a.top === 'crop-jacket')
+        h.push(`<div class="cc-row"><div class="cc-label">Outfit</div><div class="cc-seg">${OUTFIT_VARIANTS.map((o, i) => `<button data-k="variant" data-i="${i}" class="${a.variant === i ? 'on' : ''}">${label(o)}</button>`).join('')}</div></div>`);
+      else swatch('topColor', 'Top colour', CLOTH_COLORS);
       swatch('pantsColor', 'Trousers', CLOTH_COLORS);
       seg('boots', 'Boots', BOOT_STYLES);
     } else {
